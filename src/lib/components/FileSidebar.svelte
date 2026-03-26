@@ -51,6 +51,17 @@
     browseDir = dirPath;
   }
 
+  export async function openDirectoryPath(dirPath: string) {
+    rootDir = dirPath;
+    try {
+      await listDirectory(dirPath);
+      onstatus(`Loaded ${sidebarEntries.length} entries`);
+    } catch (err) {
+      sidebarEntries = [];
+      onstatus(`Could not read folder: ${err}`);
+    }
+  }
+
   export async function openDirectory() {
     const selected = await open({
       directory: true,

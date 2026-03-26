@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import { open, save } from "@tauri-apps/plugin-dialog";
-  import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+  import { readTextFile, writeTextFile, stat } from "@tauri-apps/plugin-fs";
   import type { BundledLanguage, BundledTheme } from "shiki";
   import { fileName, detectLanguage } from "$lib/utils/path";
   import FileSidebar from "$lib/components/FileSidebar.svelte";
@@ -181,6 +182,23 @@
     };
 
     window.addEventListener("keydown", onKeyDown);
+
+    // Handle CLI args: `edit /path/to/dir` or `edit /path/to/file`
+    invoke<string[]>("get_cli_args").then(async (args) => {
+      const target = args[1]; // args[0] is the binary path
+      if (!target) return;
+      try {
+        const info = await stat(target);
+        if (info.isDirectory) {
+          sidebarRef?.openDirectoryPath(target);
+        } else if (info.isFile) {
+          await openPath(target);
+        }
+      } catch {
+        status = `Could not open: ${target}`;
+      }
+    });
+
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 </script>
