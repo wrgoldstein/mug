@@ -29,6 +29,11 @@
   let textareaEl = $state<HTMLTextAreaElement | null>(null);
   let codeLayerEl = $state<HTMLDivElement | null>(null);
 
+  const FONT_SIZE_MIN = 8;
+  const FONT_SIZE_MAX = 32;
+  const FONT_SIZE_STEP = 1;
+  let fontSize = $state(15);
+
   const languageOptions: BundledLanguage[] = ["ts", "js", "python", "svelte", "json", "md", "html", "css", "rust", "bash"];
   const themeOptions: BundledTheme[] = ["github-dark", "github-light", "dracula", "nord"];
 
@@ -297,6 +302,24 @@
         event.preventDefault();
         newFile();
       }
+
+      if (event.key === "=" || event.key === "+") {
+        event.preventDefault();
+        fontSize = Math.min(FONT_SIZE_MAX, fontSize + FONT_SIZE_STEP);
+        status = `Font size: ${fontSize}px`;
+      }
+
+      if (event.key === "-") {
+        event.preventDefault();
+        fontSize = Math.max(FONT_SIZE_MIN, fontSize - FONT_SIZE_STEP);
+        status = `Font size: ${fontSize}px`;
+      }
+
+      if (event.key === "0") {
+        event.preventDefault();
+        fontSize = 15;
+        status = `Font size: ${fontSize}px (reset)`;
+      }
     };
 
     void (async () => {
@@ -367,7 +390,7 @@
       </div>
     </aside>
 
-    <section class="editor-shell">
+    <section class="editor-shell" style="--editor-font-size: {fontSize}px">
       <div class="code-layer" bind:this={codeLayerEl} aria-hidden="true">
         {@html highlightedHtml}
       </div>
@@ -544,7 +567,7 @@
     border: none;
     outline: none;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 0.95rem;
+    font-size: var(--editor-font-size, 15px);
     line-height: 1.45;
     font-weight: normal;
     font-style: normal;
