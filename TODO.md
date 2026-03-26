@@ -3,7 +3,7 @@
 ## Must-have (you'll hit these in minutes)
 
 - [x] **Undo/Redo (Cmd+Z / Cmd+Shift+Z)** — native textarea undo/redo works well. Stack resets on file change, which is fine.
-- [ ] **Tab key inserts indentation** — right now Tab moves focus out of the textarea. Intercept it and insert spaces/tab.
+- [x] **Tab key inserts indentation** — Tab inserts 2 spaces. Tab/Shift+Tab indent/dedent selected lines.
 - [ ] **Auto-indent on Enter** — match the indentation of the current line when pressing Enter.
 - [ ] **Find and Replace (Cmd+H)** — find alone won't cut it for long. Replace + Replace All.
 - [ ] **Line numbers** — hard to navigate code without them, especially for error messages that reference line numbers.
@@ -14,7 +14,7 @@
 - [ ] **Multi-file tabs** — opening a new file loses the current one. Need tabs or a buffer list.
 - [ ] **Go to line (Cmd+G or Cmd+L)** — essential when reading stack traces.
 - [ ] **Auto-closing brackets/quotes** — type `(` get `()` with cursor in the middle.
-- [ ] **Selection indentation (Tab/Shift+Tab)** — indent/dedent selected block.
+- [x] **Selection indentation (Tab/Shift+Tab)** — indent/dedent selected block.
 - [ ] **Cmd+D / Cmd+Shift+L** — select next occurrence / select all occurrences. Huge for quick renames.
 - [ ] **Word wrap toggle** — some files are unreadable without it.
 
