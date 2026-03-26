@@ -1,295 +1,32 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { open, save } from "@tauri-apps/plugin-dialog";
-  import { readDir, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
-  import { createHighlighter, type BundledLanguage, type BundledTheme, type Highlighter } from "shiki";
-
-  type SidebarEntry = {
-    path: string;
-    name: string;
-    isDirectory: boolean;
-    isFile: boolean;
-  };
+  import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+  import type { BundledLanguage, BundledTheme } from "shiki";
+  import { fileName, detectLanguage } from "$lib/utils/path";
+  import FileSidebar from "$lib/components/FileSidebar.svelte";
+  import CodeEditor from "$lib/components/CodeEditor.svelte";
 
   let content = $state("");
   let currentPath = $state<string | null>(null);
-  let rootDir = $state<string | null>(null);
-  let browseDir = $state<string | null>(null);
-  let sidebarEntries = $state<SidebarEntry[]>([]);
   let isDirty = $state(false);
   let status = $state("Ready");
-  let highlightedHtml = $state('<pre class="shiki"><code></code></pre>');
 
   let selectedLanguage = $state<BundledLanguage>("ts");
   let selectedTheme = $state<BundledTheme>("github-dark");
-
-  let highlighter: Highlighter | null = null;
-  let highlightTimer: number | null = null;
-
-  let textareaEl = $state<HTMLTextAreaElement | null>(null);
-  let codeLayerEl = $state<HTMLDivElement | null>(null);
 
   const FONT_SIZE_MIN = 8;
   const FONT_SIZE_MAX = 32;
   const FONT_SIZE_STEP = 1;
   let fontSize = $state(15);
 
-  // Find state
   let showFind = $state(false);
-  let findQuery = $state("");
-  let findCaseSensitive = $state(false);
-  let findMatches = $state<{ start: number; end: number }[]>([]);
-  let findCurrentIdx = $state(-1);
-  let findInputEl = $state<HTMLInputElement | null>(null);
 
-  function computeMatches() {
-    if (!findQuery) {
-      findMatches = [];
-      findCurrentIdx = -1;
-      return;
-    }
-    const src = findCaseSensitive ? content : content.toLowerCase();
-    const q = findCaseSensitive ? findQuery : findQuery.toLowerCase();
-    const results: { start: number; end: number }[] = [];
-    let pos = 0;
-    while (pos <= src.length - q.length) {
-      const idx = src.indexOf(q, pos);
-      if (idx === -1) break;
-      results.push({ start: idx, end: idx + q.length });
-      pos = idx + 1;
-    }
-    findMatches = results;
-    if (results.length === 0) {
-      findCurrentIdx = -1;
-    } else if (findCurrentIdx < 0 || findCurrentIdx >= results.length) {
-      findCurrentIdx = 0;
-    }
-  }
-
-  function selectMatch(idx: number, focusTextarea = true) {
-    if (!textareaEl || idx < 0 || idx >= findMatches.length) return;
-    const m = findMatches[idx];
-    textareaEl.setSelectionRange(m.start, m.end);
-
-    // Scroll the match into view by computing line/col
-    const before = content.slice(0, m.start);
-    const line = before.split("\n").length - 1;
-    const lineHeight = textareaEl.scrollHeight / (content.split("\n").length || 1);
-    const targetTop = line * lineHeight - textareaEl.clientHeight / 3;
-    textareaEl.scrollTop = Math.max(0, targetTop);
-    syncScroll();
-
-    if (focusTextarea) textareaEl.focus();
-  }
-
-  function findNext() {
-    if (findMatches.length === 0) return;
-    findCurrentIdx = (findCurrentIdx + 1) % findMatches.length;
-    selectMatch(findCurrentIdx);
-  }
-
-  function findPrev() {
-    if (findMatches.length === 0) return;
-    findCurrentIdx = (findCurrentIdx - 1 + findMatches.length) % findMatches.length;
-    selectMatch(findCurrentIdx);
-  }
-
-  function openFind() {
-    showFind = true;
-    // If there's a selection, prefill the query
-    if (textareaEl) {
-      const sel = content.slice(textareaEl.selectionStart, textareaEl.selectionEnd);
-      if (sel && !sel.includes("\n")) findQuery = sel;
-    }
-    computeMatches();
-    // Focus input after DOM update
-    requestAnimationFrame(() => findInputEl?.focus());
-  }
-
-  function closeFind() {
-    showFind = false;
-    findMatches = [];
-    findCurrentIdx = -1;
-    textareaEl?.focus();
-  }
-
-  function onFindInput(event: Event) {
-    findQuery = (event.target as HTMLInputElement).value;
-    computeMatches();
-    if (findMatches.length > 0) {
-      // Jump to nearest match from current cursor
-      const cursor = textareaEl?.selectionStart ?? 0;
-      let nearest = 0;
-      for (let i = 0; i < findMatches.length; i++) {
-        if (findMatches[i].start >= cursor) { nearest = i; break; }
-        nearest = i;
-      }
-      findCurrentIdx = nearest;
-      selectMatch(findCurrentIdx, false);
-    }
-  }
-
-  function onFindKeyDown(event: KeyboardEvent) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeFind();
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      if (event.shiftKey) findPrev();
-      else findNext();
-    }
-  }
-
-  function toggleCaseSensitive() {
-    findCaseSensitive = !findCaseSensitive;
-    computeMatches();
-    if (findMatches.length > 0) selectMatch(findCurrentIdx, false);
-    findInputEl?.focus();
-  }
+  let sidebarRef: FileSidebar | null = $state(null);
+  let editorRef: CodeEditor | null = $state(null);
 
   const languageOptions: BundledLanguage[] = ["ts", "js", "python", "svelte", "json", "md", "html", "css", "rust", "bash"];
   const themeOptions: BundledTheme[] = ["github-dark", "github-light", "dracula", "nord"];
-
-  function fileName(path: string | null) {
-    if (!path) return "Untitled";
-    const parts = path.split(/[\\/]/);
-    return parts[parts.length - 1] || path;
-  }
-
-  function escapeHtml(text: string) {
-    return text
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
-  }
-
-  function detectLanguage(path: string): BundledLanguage {
-    const ext = path.split(".").pop()?.toLowerCase();
-    switch (ext) {
-      case "ts":
-        return "ts";
-      case "js":
-        return "js";
-      case "svelte":
-        return "svelte";
-      case "py":
-        return "python";
-      case "json":
-        return "json";
-      case "md":
-        return "md";
-      case "html":
-        return "html";
-      case "css":
-        return "css";
-      case "rs":
-        return "rust";
-      case "sh":
-      case "bash":
-        return "bash";
-      default:
-        return "ts";
-    }
-  }
-
-  async function renderHighlight() {
-    if (!highlighter) {
-      highlightedHtml = `<pre class="shiki"><code>${escapeHtml(content)}</code></pre>`;
-      return;
-    }
-
-    await highlighter.loadLanguage(selectedLanguage);
-    await highlighter.loadTheme(selectedTheme);
-
-    highlightedHtml = highlighter.codeToHtml(content || " ", {
-      lang: selectedLanguage,
-      theme: selectedTheme
-    });
-
-    syncScroll();
-  }
-
-  function syncScroll() {
-    if (!textareaEl || !codeLayerEl) return;
-    codeLayerEl.scrollTop = textareaEl.scrollTop;
-    codeLayerEl.scrollLeft = textareaEl.scrollLeft;
-  }
-
-  function scheduleHighlight() {
-    if (highlightTimer) window.clearTimeout(highlightTimer);
-    highlightTimer = window.setTimeout(() => {
-      void renderHighlight();
-    }, 40);
-  }
-
-  function joinPath(parent: string, child: string) {
-    if (parent.endsWith("/") || parent.endsWith("\\")) return `${parent}${child}`;
-    return `${parent}/${child}`;
-  }
-
-  function parentPath(path: string) {
-    const normalized = path.replace(/[\\/]+$/, "");
-    const slash = normalized.lastIndexOf("/");
-    const backslash = normalized.lastIndexOf("\\");
-    const index = Math.max(slash, backslash);
-    if (index <= 0) return path;
-    return normalized.slice(0, index);
-  }
-
-  function relativePath(path: string, base: string | null) {
-    if (!base) return path;
-    if (!path.startsWith(base)) return path;
-    const rel = path.slice(base.length).replace(/^[/\\]/, "");
-    return rel || ".";
-  }
-
-  async function listDirectory(dirPath: string) {
-    const entries = await readDir(dirPath);
-    const filtered = entries.filter((entry) => {
-      if (entry.name.startsWith(".")) return false;
-      if (entry.isDirectory && (entry.name === "node_modules" || entry.name === "target" || entry.name === "dist" || entry.name === "build")) {
-        return false;
-      }
-      return true;
-    });
-
-    filtered.sort((a, b) => {
-      if (a.isDirectory && !b.isDirectory) return -1;
-      if (!a.isDirectory && b.isDirectory) return 1;
-      return a.name.localeCompare(b.name);
-    });
-
-    sidebarEntries = filtered.map((entry) => ({
-      path: joinPath(dirPath, entry.name),
-      name: entry.name,
-      isDirectory: entry.isDirectory,
-      isFile: entry.isFile
-    }));
-
-    browseDir = dirPath;
-  }
-
-  async function openDirectory() {
-    const selected = await open({
-      directory: true,
-      multiple: false
-    });
-
-    if (!selected || Array.isArray(selected)) return;
-
-    rootDir = selected;
-    try {
-      await listDirectory(selected);
-      status = `Loaded ${sidebarEntries.length} entries`;
-    } catch (err) {
-      sidebarEntries = [];
-      status = `Could not read folder: ${err}`;
-    }
-  }
 
   async function openPath(path: string) {
     content = await readTextFile(path);
@@ -297,33 +34,6 @@
     selectedLanguage = detectLanguage(path);
     isDirty = false;
     status = `Opened ${fileName(path)}`;
-    scheduleHighlight();
-  }
-
-  async function openSidebarEntry(entry: SidebarEntry) {
-    if (entry.isDirectory) {
-      try {
-        await listDirectory(entry.path);
-        status = `Browsing ${entry.name}`;
-      } catch (err) {
-        status = `Could not open folder: ${err}`;
-      }
-      return;
-    }
-
-    await openPath(entry.path);
-  }
-
-  async function goUpDirectory() {
-    if (!browseDir || !rootDir || browseDir === rootDir) return;
-    const up = parentPath(browseDir);
-    if (!up.startsWith(rootDir)) return;
-    await listDirectory(up);
-  }
-
-  async function goRootDirectory() {
-    if (!rootDir) return;
-    await listDirectory(rootDir);
   }
 
   async function newFile() {
@@ -331,7 +41,6 @@
     currentPath = null;
     isDirty = false;
     status = "New file";
-    scheduleHighlight();
   }
 
   async function openFile() {
@@ -339,7 +48,6 @@
       multiple: false,
       filters: [{ name: "Text", extensions: ["txt", "md", "json", "js", "ts", "py", "svelte", "css", "html", "rs", "sh"] }]
     });
-
     if (!selected || Array.isArray(selected)) return;
     await openPath(selected);
   }
@@ -351,7 +59,6 @@
       status = `Saved ${fileName(currentPath)}`;
       return;
     }
-
     await saveAsFile();
   }
 
@@ -360,7 +67,6 @@
       filters: [{ name: "Text", extensions: ["txt", "md"] }],
       defaultPath: currentPath ?? "untitled.txt"
     });
-
     if (!selected) return;
 
     await writeTextFile(selected, content);
@@ -368,32 +74,31 @@
     selectedLanguage = detectLanguage(selected);
     isDirty = false;
     status = `Saved ${fileName(selected)}`;
-
-    if (browseDir) {
-      try {
-        await listDirectory(browseDir);
-      } catch {
-        // ignore sidebar refresh failures
-      }
-    }
+    sidebarRef?.refreshCurrentDir();
   }
 
-  function onInput(event: Event) {
-    content = (event.target as HTMLTextAreaElement).value;
-    isDirty = true;
-    scheduleHighlight();
+  function onEditorChange(value: string) {
+    content = value;
   }
 
   function onLanguageChange(event: Event) {
     selectedLanguage = (event.target as HTMLSelectElement).value as BundledLanguage;
     status = `Language: ${selectedLanguage}`;
-    scheduleHighlight();
   }
 
   function onThemeChange(event: Event) {
     selectedTheme = (event.target as HTMLSelectElement).value as BundledTheme;
     status = `Theme: ${selectedTheme}`;
-    scheduleHighlight();
+  }
+
+  function openFind() {
+    showFind = true;
+    // Let the CodeEditor/FindBar handle prefill after mount
+    requestAnimationFrame(() => editorRef?.openFindBar());
+  }
+
+  function closeFind() {
+    showFind = false;
   }
 
   onMount(() => {
@@ -410,7 +115,7 @@
       if (event.key.toLowerCase() === "o") {
         event.preventDefault();
         if (event.shiftKey) openFile();
-        else openDirectory();
+        else sidebarRef?.openDirectory();
       }
 
       if (event.key.toLowerCase() === "n") {
@@ -427,8 +132,8 @@
       if (event.key.toLowerCase() === "g") {
         event.preventDefault();
         if (showFind) {
-          if (event.shiftKey) findPrev();
-          else findNext();
+          if (event.shiftKey) editorRef?.findPrev();
+          else editorRef?.findNext();
         }
         return;
       }
@@ -452,14 +157,6 @@
       }
     };
 
-    void (async () => {
-      highlighter = await createHighlighter({
-        themes: [selectedTheme],
-        langs: [selectedLanguage]
-      });
-      await renderHighlight();
-    })();
-
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   });
@@ -471,7 +168,7 @@
     <div class="actions">
       <button onclick={newFile}>New</button>
       <button onclick={openFile}>Open File</button>
-      <button onclick={openDirectory}>Open Folder</button>
+      <button onclick={() => sidebarRef?.openDirectory()}>Open Folder</button>
       <button onclick={saveFile}>Save</button>
       <button onclick={saveAsFile}>Save As</button>
       <label>
@@ -494,71 +191,23 @@
   </header>
 
   <section class="workspace">
-    <aside class="sidebar">
-      <div class="sidebar-title">{rootDir ? fileName(rootDir) : "No folder open"}</div>
+    <FileSidebar
+      bind:this={sidebarRef}
+      onfileopen={openPath}
+      onstatus={(msg) => status = msg}
+    />
 
-      {#if rootDir}
-        <div class="sidebar-nav">
-          <button onclick={goRootDirectory} disabled={!browseDir || browseDir === rootDir}>Root</button>
-          <button onclick={goUpDirectory} disabled={!browseDir || browseDir === rootDir}>Up</button>
-          <span title={browseDir ?? ""}>{browseDir ? relativePath(browseDir, rootDir) : ""}</span>
-        </div>
-      {/if}
-
-      <div class="file-list">
-        {#if !rootDir}
-          <p class="muted">Open a folder to browse files.</p>
-        {:else if sidebarEntries.length === 0}
-          <p class="muted">This folder is empty.</p>
-        {:else}
-          {#each sidebarEntries as entry}
-            <button class="file-row" onclick={() => openSidebarEntry(entry)} title={entry.path}>
-              {entry.isDirectory ? "📁" : "📄"} {entry.name}
-            </button>
-          {/each}
-        {/if}
-      </div>
-    </aside>
-
-    <section class="editor-shell" style="--editor-font-size: {fontSize}px">
-      {#if showFind}
-        <div class="find-bar">
-          <input
-            bind:this={findInputEl}
-            type="text"
-            value={findQuery}
-            oninput={onFindInput}
-            onkeydown={onFindKeyDown}
-            placeholder="Find…"
-            class="find-input"
-          />
-          <button
-            class="find-case-btn"
-            class:active={findCaseSensitive}
-            onclick={toggleCaseSensitive}
-            title="Match case"
-          >Aa</button>
-          <button onclick={findPrev} disabled={findMatches.length === 0} title="Previous (Shift+Enter)">▲</button>
-          <button onclick={findNext} disabled={findMatches.length === 0} title="Next (Enter)">▼</button>
-          <span class="find-count">
-            {#if findQuery}
-              {findMatches.length === 0 ? "No results" : `${findCurrentIdx + 1} of ${findMatches.length}`}
-            {/if}
-          </span>
-          <button onclick={closeFind} title="Close (Esc)">✕</button>
-        </div>
-      {/if}
-      <div class="code-layer" bind:this={codeLayerEl} aria-hidden="true">
-        {@html highlightedHtml}
-      </div>
-      <textarea
-        bind:this={textareaEl}
-        value={content}
-        oninput={onInput}
-        onscroll={syncScroll}
-        spellcheck="false"
-      ></textarea>
-    </section>
+    <CodeEditor
+      bind:this={editorRef}
+      {content}
+      language={selectedLanguage}
+      theme={selectedTheme}
+      {fontSize}
+      bind:isDirty
+      {showFind}
+      onchange={onEditorChange}
+      onclosefind={closeFind}
+    />
   </section>
 
   <footer>
@@ -640,211 +289,6 @@
     display: grid;
     grid-template-columns: 280px 1fr;
     min-height: 0;
-  }
-
-  .sidebar {
-    border-right: 1px solid #374151;
-    background: #0b1220;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .sidebar-title {
-    padding: 0.7rem 0.75rem;
-    font-size: 0.85rem;
-    font-weight: 600;
-    border-bottom: 1px solid #1f2937;
-  }
-
-  .sidebar-nav {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.45rem;
-    border-bottom: 1px solid #1f2937;
-  }
-
-  .sidebar-nav span {
-    font-size: 0.75rem;
-    color: #9ca3af;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .file-list {
-    flex: 1 1 0;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 0.4rem;
-  }
-
-  .file-row {
-    display: block;
-    width: 100%;
-    text-align: left;
-    font-size: 0.82rem;
-    background: transparent;
-    border-color: transparent;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    overflow: hidden;
-    padding: 0.35rem 0.5rem;
-    line-height: 1.4;
-    margin-bottom: 0.2rem;
-    box-sizing: border-box;
-  }
-
-  .file-row:hover {
-    background: #1f2937;
-    border-color: #374151;
-  }
-
-  .muted {
-    color: #9ca3af;
-    font-size: 0.85rem;
-    margin: 0.5rem;
-  }
-
-  .editor-shell {
-    position: relative;
-    min-height: 0;
-    overflow: hidden;
-    background: #0f172a;
-  }
-
-  .find-bar {
-    position: absolute;
-    top: 0;
-    right: 0;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.4rem 0.6rem;
-    background: #1f2937;
-    border: 1px solid #374151;
-    border-top: none;
-    border-radius: 0 0 8px 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  }
-
-  .find-input {
-    width: 220px;
-    padding: 0.3rem 0.5rem;
-    border: 1px solid #4b5563;
-    border-radius: 4px;
-    background: #111827;
-    color: #f9fafb;
-    font-size: 0.85rem;
-    outline: none;
-  }
-
-  .find-input:focus {
-    border-color: #3b82f6;
-  }
-
-  .find-count {
-    font-size: 0.78rem;
-    color: #9ca3af;
-    min-width: 70px;
-    text-align: center;
-  }
-
-  .find-bar button {
-    padding: 0.2rem 0.5rem;
-    font-size: 0.78rem;
-    border-radius: 4px;
-  }
-
-  .find-case-btn {
-    font-weight: 600;
-    opacity: 0.5;
-  }
-
-  .find-case-btn.active {
-    opacity: 1;
-    background: #3b82f6;
-    border-color: #3b82f6;
-  }
-
-  .code-layer,
-  textarea {
-    position: absolute;
-    inset: 0;
-    box-sizing: border-box;
-    padding: 1rem;
-    margin: 0;
-    border: none;
-    outline: none;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: var(--editor-font-size, 15px);
-    line-height: 1.45;
-    font-weight: normal;
-    font-style: normal;
-    font-variant: normal;
-    font-variant-ligatures: none;
-    font-feature-settings: normal;
-    font-stretch: normal;
-    letter-spacing: 0px;
-    word-spacing: 0px;
-    text-rendering: geometricPrecision;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    -webkit-text-size-adjust: none;
-    tab-size: 2;
-    overflow: auto;
-    white-space: pre;
-  }
-
-  .code-layer {
-    pointer-events: none;
-  }
-
-  .code-layer :global(pre) {
-    margin: 0 !important;
-    padding: 0 !important;
-    min-height: 100%;
-    background: transparent !important;
-    font: inherit;
-    letter-spacing: inherit;
-    word-spacing: inherit;
-    text-rendering: inherit;
-    -webkit-font-smoothing: inherit;
-    font-variant-ligatures: inherit;
-    font-feature-settings: inherit;
-  }
-
-  .code-layer :global(code) {
-    font: inherit;
-    letter-spacing: inherit;
-    word-spacing: inherit;
-    text-rendering: inherit;
-    -webkit-font-smoothing: inherit;
-    font-variant-ligatures: inherit;
-    font-feature-settings: inherit;
-  }
-
-  .code-layer :global(span) {
-    font: inherit;
-    letter-spacing: inherit;
-    word-spacing: inherit;
-    text-rendering: inherit;
-    -webkit-font-smoothing: inherit;
-    font-variant-ligatures: inherit;
-    font-feature-settings: inherit;
-  }
-
-  textarea {
-    resize: none;
-    background: transparent;
-    color: transparent;
-    caret-color: #f9fafb;
-  }
-
-  textarea::selection {
-    background: rgba(59, 130, 246, 0.35);
   }
 
   h1 {
