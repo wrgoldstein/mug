@@ -2,7 +2,18 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { open, save } from "@tauri-apps/plugin-dialog";
-  import { readTextFile, writeTextFile, stat } from "@tauri-apps/plugin-fs";
+  // Using our own Rust commands instead of Tauri's scoped FS plugin
+  // so dotfiles and all paths work without glob restrictions
+  async function readTextFile(path: string): Promise<string> {
+    return invoke<string>("read_text_file", { path });
+  }
+  async function writeTextFile(path: string, contents: string): Promise<void> {
+    return invoke("write_text_file", { path, contents });
+  }
+  async function stat(path: string): Promise<{ isFile: boolean; isDirectory: boolean }> {
+    const [isFile, isDirectory] = await invoke<[boolean, boolean]>("stat_path", { path });
+    return { isFile, isDirectory };
+  }
   import type { BundledLanguage, BundledTheme } from "shiki";
   import { fileName, detectLanguage, relativePath, shortPath } from "$lib/utils/path";
   import FileSidebar from "$lib/components/FileSidebar.svelte";

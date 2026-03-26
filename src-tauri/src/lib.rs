@@ -138,13 +138,43 @@ fn get_git_branch(path: String) -> Option<String> {
     if branch.is_empty() { None } else { Some(branch) }
 }
 
+// ── File I/O (no scope restrictions) ─────────────────────────
+
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("{}: {}", path, e))
+}
+
+#[tauri::command]
+fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    std::fs::write(&path, contents).map_err(|e| format!("{}: {}", path, e))
+}
+
+#[tauri::command]
+fn stat_path(path: String) -> Result<(bool, bool), String> {
+    let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {}", path, e))?;
+    Ok((meta.is_file(), meta.is_dir()))
+}
+
+#[tauri::command]
+fn read_dir_entries(path: String) -> Result<Vec<(String, bool)>, String> {
+    let mut entries = Vec::new();
+    let dir = std::fs::read_dir(&path).map_err(|e| format!("{}: {}", path, e))?;
+    for entry in dir.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        entries.push((name, is_dir));
+    }
+    Ok(entries)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![get_cli_args, get_git_branch, get_git_status, zoxide_query, fzf_files, register_directory, unregister_directory])
+        .invoke_handler(tauri::generate_handler![get_cli_args, get_git_branch, get_git_status, zoxide_query, fzf_files, register_directory, unregister_directory, read_text_file, write_text_file, stat_path, read_dir_entries])
         .on_window_event(|_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 let _ = std::fs::remove_file(instance_file());

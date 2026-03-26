@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { readDir } from "@tauri-apps/plugin-fs";
   import { invoke } from "@tauri-apps/api/core";
   import { fileName, joinPath } from "$lib/utils/path";
 
@@ -90,7 +89,8 @@
 
   // ── Tree operations ────────────────────────────────────────
   async function loadChildren(node: TreeNode): Promise<TreeNode[]> {
-    const entries = await readDir(node.path);
+    const raw = await invoke<[string, boolean][]>("read_dir_entries", { path: node.path });
+    const entries = raw.map(([name, isDir]) => ({ name, isDirectory: isDir }));
     const filtered = entries.filter((e) => {
       if (e.name.startsWith(".")) return false;
       if (e.isDirectory && HIDDEN_DIRS.has(e.name)) return false;
