@@ -220,12 +220,14 @@
     highlightTimer = requestAnimationFrame(highlightSync);
   }
 
+  let inputGeneration = 0; // incremented on typing to skip redundant $effect highlights
+
   function onInput(event: Event) {
     const value = (event.target as HTMLTextAreaElement).value;
     onchange(value);
     isDirty = true;
-    // Skip scheduleHighlight — the $effect watching `content` handles it.
-    // This avoids double-firing and keeps one clean path.
+    inputGeneration++;
+    highlightSync(); // synchronous — no debounce, no frame delay
   }
 
   // Characters after which we add an extra indent level on Enter
@@ -350,9 +352,15 @@
     textareaEl?.focus();
   }
 
-  // Re-highlight on content changes (fast path, next frame)
+  // Re-highlight on external content changes (tab switch, file load)
+  // Typing already calls highlightSync() directly in onInput, so skip those.
+  let lastHighlightGen = 0;
   $effect(() => {
     void content;
+    if (inputGeneration !== lastHighlightGen) {
+      lastHighlightGen = inputGeneration;
+      return; // already highlighted synchronously in onInput
+    }
     scheduleHighlight();
   });
 
