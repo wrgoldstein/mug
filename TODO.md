@@ -2,7 +2,7 @@
 
 ## Must-have (you'll hit these in minutes)
 
-- [ ] **Undo/Redo (Cmd+Z / Cmd+Shift+Z)** — the textarea has basic browser undo, but it breaks when you set `value` programmatically (which happens on file open). Need a proper undo stack.
+- [x] **Undo/Redo (Cmd+Z / Cmd+Shift+Z)** — native textarea undo/redo works well. Stack resets on file change, which is fine.
 - [ ] **Tab key inserts indentation** — right now Tab moves focus out of the textarea. Intercept it and insert spaces/tab.
 - [ ] **Auto-indent on Enter** — match the indentation of the current line when pressing Enter.
 - [ ] **Find and Replace (Cmd+H)** — find alone won't cut it for long. Replace + Replace All.
