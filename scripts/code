@@ -24,3 +24,6 @@ else
 fi
 
 disown
+
+# Bring the app window to the foreground
+open -a "$APP_NAME"
