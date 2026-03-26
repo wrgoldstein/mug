@@ -86,6 +86,65 @@
     scheduleHighlight();
   }
 
+  function onKeyDown(event: KeyboardEvent) {
+    if (event.key !== "Tab") return;
+    event.preventDefault();
+
+    const ta = textareaEl!;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+
+    if (start === end && !event.shiftKey) {
+      // No selection — insert two spaces at cursor
+      const before = ta.value.slice(0, start);
+      const after = ta.value.slice(end);
+      ta.value = before + "  " + after;
+      ta.selectionStart = ta.selectionEnd = start + 2;
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      return;
+    }
+
+    // Selection exists — indent/dedent whole lines
+    const val = ta.value;
+    const lineStart = val.lastIndexOf("\n", start - 1) + 1;
+    const lineEnd = val.indexOf("\n", end);
+    const blockEnd = lineEnd === -1 ? val.length : lineEnd;
+    const block = val.slice(lineStart, blockEnd);
+    const lines = block.split("\n");
+
+    let newLines: string[];
+    let delta = 0;
+    let firstDelta = 0;
+
+    if (event.shiftKey) {
+      // Dedent
+      newLines = lines.map((line, i) => {
+        if (line.startsWith("  ")) {
+          if (i === 0) firstDelta = -2;
+          delta -= 2;
+          return line.slice(2);
+        }
+        if (line.startsWith("\t")) {
+          if (i === 0) firstDelta = -1;
+          delta -= 1;
+          return line.slice(1);
+        }
+        return line;
+      });
+    } else {
+      // Indent
+      newLines = lines.map((line) => "  " + line);
+      firstDelta = 2;
+      delta = lines.length * 2;
+    }
+
+    const newBlock = newLines.join("\n");
+    ta.value = val.slice(0, lineStart) + newBlock + val.slice(blockEnd);
+    ta.selectionStart = Math.max(lineStart, start + firstDelta);
+    ta.selectionEnd = end + delta;
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
   function handleCloseFindBar() {
     onclosefind();
     textareaEl?.focus();
@@ -128,6 +187,7 @@
     bind:this={textareaEl}
     value={content}
     oninput={onInput}
+    onkeydown={onKeyDown}
     onscroll={syncScroll}
     spellcheck="false"
   ></textarea>
