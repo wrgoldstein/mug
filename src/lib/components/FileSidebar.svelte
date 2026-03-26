@@ -1,7 +1,8 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
   import { readDir } from "@tauri-apps/plugin-fs";
-  import { fileName, joinPath, parentPath, relativePath } from "$lib/utils/path";
+  import { invoke } from "@tauri-apps/api/core";
+  import { fileName, joinPath } from "$lib/utils/path";
 
   interface Props {
     onfileopen: (path: string) => void;
@@ -11,28 +12,87 @@
 
   let { onfileopen, onstatus, hidden = false }: Props = $props();
 
-  type SidebarEntry = {
+  // ── Tree model ─────────────────────────────────────────────
+  interface TreeNode {
     path: string;
     name: string;
     isDirectory: boolean;
-    isFile: boolean;
-  };
+    children: TreeNode[] | null; // null = not loaded
+    expanded: boolean;
+  }
+
+  interface FlatRow {
+    node: TreeNode;
+    depth: number;
+  }
+
+  const HIDDEN_DIRS = new Set(["node_modules", "target", "dist", "build", ".svelte-kit"]);
 
   let rootDir = $state<string | null>(null);
+  let rootNode = $state<TreeNode | null>(null);
+  let flatRows = $state<FlatRow[]>([]);
 
+  // ── Git status ─────────────────────────────────────────────
+  // Maps relative file path → status code (M, A, D, ??, etc.)
+  let gitStatus = $state<Map<string, string>>(new Map());
+
+  async function fetchGitStatus() {
+    if (!rootDir) { gitStatus = new Map(); return; }
+    try {
+      const entries = await invoke<[string, string][]>("get_git_status", { path: rootDir });
+      const map = new Map<string, string>();
+      for (const [file, status] of entries) {
+        map.set(file, status);
+      }
+      gitStatus = map;
+    } catch {
+      gitStatus = new Map();
+    }
+  }
+
+  function getFileStatus(path: string): string | null {
+    if (!rootDir || !path.startsWith(rootDir)) return null;
+    const rel = path.slice(rootDir.length).replace(/^[/\\]/, "");
+    return gitStatus.get(rel) ?? null;
+  }
+
+  function getDirStatus(path: string): string | null {
+    if (!rootDir || !path.startsWith(rootDir)) return null;
+    const rel = path.slice(rootDir.length).replace(/^[/\\]/, "") + "/";
+    for (const [file] of gitStatus) {
+      if (file.startsWith(rel)) return "M"; // dir contains changes
+    }
+    return null;
+  }
+
+  // ── Public API (unchanged) ─────────────────────────────────
   export function getRootDir(): string | null {
     return rootDir;
   }
-  let browseDir = $state<string | null>(null);
-  let sidebarEntries = $state<SidebarEntry[]>([]);
 
-  async function listDirectory(dirPath: string) {
-    const entries = await readDir(dirPath);
-    const filtered = entries.filter((entry) => {
-      if (entry.name.startsWith(".")) return false;
-      if (entry.isDirectory && (entry.name === "node_modules" || entry.name === "target" || entry.name === "dist" || entry.name === "build")) {
-        return false;
-      }
+  export async function openDirectory() {
+    const selected = await open({ directory: true, multiple: false });
+    if (!selected || Array.isArray(selected)) return;
+    await loadRoot(selected);
+  }
+
+  export async function openDirectoryPath(dirPath: string) {
+    await loadRoot(dirPath);
+  }
+
+  export async function refreshCurrentDir() {
+    if (!rootNode) return;
+    await refreshNode(rootNode);
+    rebuildFlat();
+    fetchGitStatus();
+  }
+
+  // ── Tree operations ────────────────────────────────────────
+  async function loadChildren(node: TreeNode): Promise<TreeNode[]> {
+    const entries = await readDir(node.path);
+    const filtered = entries.filter((e) => {
+      if (e.name.startsWith(".")) return false;
+      if (e.isDirectory && HIDDEN_DIRS.has(e.name)) return false;
       return true;
     });
 
@@ -42,102 +102,135 @@
       return a.name.localeCompare(b.name);
     });
 
-    sidebarEntries = filtered.map((entry) => ({
-      path: joinPath(dirPath, entry.name),
-      name: entry.name,
-      isDirectory: entry.isDirectory,
-      isFile: entry.isFile
+    return filtered.map((e) => ({
+      path: joinPath(node.path, e.name),
+      name: e.name,
+      isDirectory: e.isDirectory,
+      children: null,
+      expanded: false,
     }));
-
-    browseDir = dirPath;
   }
 
-  export async function openDirectoryPath(dirPath: string) {
+  async function loadRoot(dirPath: string) {
     rootDir = dirPath;
+    const node: TreeNode = {
+      path: dirPath,
+      name: fileName(dirPath),
+      isDirectory: true,
+      children: null,
+      expanded: true,
+    };
+
     try {
-      await listDirectory(dirPath);
-      onstatus(`Loaded ${sidebarEntries.length} entries`);
+      node.children = await loadChildren(node);
+      rootNode = node;
+      rebuildFlat();
+      onstatus(`Loaded ${node.children.length} entries`);
+      fetchGitStatus();
     } catch (err) {
-      sidebarEntries = [];
+      rootNode = null;
+      flatRows = [];
       onstatus(`Could not read folder: ${err}`);
     }
   }
 
-  export async function openDirectory() {
-    const selected = await open({
-      directory: true,
-      multiple: false
-    });
-
-    if (!selected || Array.isArray(selected)) return;
-
-    rootDir = selected;
+  async function refreshNode(node: TreeNode) {
+    if (!node.isDirectory || !node.expanded || node.children === null) return;
     try {
-      await listDirectory(selected);
-      onstatus(`Loaded ${sidebarEntries.length} entries`);
-    } catch (err) {
-      sidebarEntries = [];
-      onstatus(`Could not read folder: ${err}`);
+      const freshChildren = await loadChildren(node);
+      // Preserve expanded state for directories that still exist
+      const oldByPath = new Map(node.children.map(c => [c.path, c]));
+      for (const child of freshChildren) {
+        const old = oldByPath.get(child.path);
+        if (old && old.isDirectory && old.expanded && old.children) {
+          child.expanded = true;
+          child.children = old.children;
+          await refreshNode(child);
+        }
+      }
+      node.children = freshChildren;
+    } catch {
+      // keep existing children on error
     }
   }
 
-  export async function refreshCurrentDir() {
-    if (browseDir) {
-      try {
-        await listDirectory(browseDir);
-      } catch {
-        // ignore refresh failures
-      }
-    }
-  }
+  async function toggleExpand(node: TreeNode) {
+    if (!node.isDirectory) return;
 
-  async function openSidebarEntry(entry: SidebarEntry) {
-    if (entry.isDirectory) {
-      try {
-        await listDirectory(entry.path);
-        onstatus(`Browsing ${entry.name}`);
-      } catch (err) {
-        onstatus(`Could not open folder: ${err}`);
-      }
+    if (node.expanded) {
+      node.expanded = false;
+      rebuildFlat();
       return;
     }
 
-    onfileopen(entry.path);
+    if (node.children === null) {
+      try {
+        node.children = await loadChildren(node);
+      } catch (err) {
+        onstatus(`Could not read: ${node.name}`);
+        return;
+      }
+    }
+
+    node.expanded = true;
+    rebuildFlat();
   }
 
-  async function goUpDirectory() {
-    if (!browseDir || !rootDir || browseDir === rootDir) return;
-    const up = parentPath(browseDir);
-    if (!up.startsWith(rootDir)) return;
-    await listDirectory(up);
+  function handleClick(node: TreeNode) {
+    if (node.isDirectory) {
+      toggleExpand(node);
+    } else {
+      onfileopen(node.path);
+    }
   }
 
-  async function goRootDirectory() {
-    if (!rootDir) return;
-    await listDirectory(rootDir);
+  // ── Flatten tree for rendering ─────────────────────────────
+  function rebuildFlat() {
+    const rows: FlatRow[] = [];
+
+    function walk(nodes: TreeNode[], depth: number) {
+      for (const node of nodes) {
+        rows.push({ node, depth });
+        if (node.isDirectory && node.expanded && node.children) {
+          walk(node.children, depth + 1);
+        }
+      }
+    }
+
+    if (rootNode?.children) {
+      walk(rootNode.children, 0);
+    }
+
+    flatRows = rows;
   }
 </script>
 
 <aside class="sidebar" class:hidden>
   <div class="sidebar-title">{rootDir ? fileName(rootDir) : "No folder open"}</div>
 
-  {#if rootDir}
-    <div class="sidebar-nav">
-      <button onclick={goRootDirectory} disabled={!browseDir || browseDir === rootDir}>Root</button>
-      <button onclick={goUpDirectory} disabled={!browseDir || browseDir === rootDir}>Up</button>
-      <span title={browseDir ?? ""}>{browseDir ? relativePath(browseDir, rootDir) : ""}</span>
-    </div>
-  {/if}
-
   <div class="file-list">
     {#if !rootDir}
       <p class="muted">Open a folder to browse files.</p>
-    {:else if sidebarEntries.length === 0}
+    {:else if flatRows.length === 0}
       <p class="muted">This folder is empty.</p>
     {:else}
-      {#each sidebarEntries as entry}
-        <button class="file-row" onclick={() => openSidebarEntry(entry)} title={entry.path}>
-          {entry.isDirectory ? "📁" : "📄"} {entry.name}
+      {#each flatRows as row (row.node.path)}
+        {@const status = row.node.isDirectory ? getDirStatus(row.node.path) : getFileStatus(row.node.path)}
+        <button
+          class="tree-row"
+          class:git-modified={status === "M"}
+          class:git-added={status === "A" || status === "??"}
+          class:git-deleted={status === "D"}
+          style="padding-left: {0.5 + row.depth * 0.9}rem"
+          onclick={() => handleClick(row.node)}
+          title={row.node.path}
+        >
+          {#if row.node.isDirectory}
+            <span class="chevron">{row.node.expanded ? "▾" : "▸"}</span>
+          {:else}
+            <span class="chevron-spacer"></span>
+          {/if}
+          <span class="row-name" class:is-dir={row.node.isDirectory}>{row.node.name}</span>
         </button>
       {/each}
     {/if}
@@ -167,80 +260,80 @@
     border-bottom: 1px solid #2a2a2a;
   }
 
-  .sidebar-nav {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.4rem;
-    border-bottom: 1px solid #2a2a2a;
-  }
-
-  .sidebar-nav span {
-    font-size: 0.73rem;
-    color: #5a5650;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .file-list {
     flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
-    padding: 0.35rem;
+    padding: 0.25rem 0;
   }
 
-  .file-row {
-    display: block;
+  .tree-row {
+    display: flex;
+    align-items: center;
     width: 100%;
     text-align: left;
     font-size: 0.8rem;
     background: transparent;
-    border-color: transparent;
+    border: none;
+    border-left: 2px solid transparent;
     color: #8a8580;
     white-space: nowrap;
-    text-overflow: ellipsis;
     overflow: hidden;
-    padding: 0.3rem 0.5rem;
-    line-height: 1.4;
-    margin-bottom: 0.1rem;
+    padding-top: 0.2rem;
+    padding-bottom: 0.2rem;
+    padding-right: 0.5rem;
+    line-height: 1.45;
     box-sizing: border-box;
-    border-radius: 3px;
-    transition: color 0.15s, background 0.15s;
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s;
+    font-family: inherit;
   }
 
-  .file-row:hover {
+  .tree-row:hover {
     background: #252525;
     color: #e0ddd8;
-    border-color: transparent;
-    border-left: 2px solid #c8956c;
-    padding-left: calc(0.5rem - 2px);
+    border-left-color: #c8956c;
+  }
+
+  .chevron {
+    flex-shrink: 0;
+    width: 0.9rem;
+    font-size: 0.65rem;
+    color: #5a5650;
+    text-align: center;
+  }
+
+  .chevron-spacer {
+    flex-shrink: 0;
+    width: 0.9rem;
+  }
+
+  .row-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .row-name.is-dir {
+    color: #a09a92;
+  }
+
+  .git-modified .row-name {
+    color: #c8956c;
+  }
+
+  .git-added .row-name {
+    color: #7d9e7a;
+  }
+
+  .git-deleted .row-name {
+    color: #9e6a6a;
+    text-decoration: line-through;
+    text-decoration-color: #9e6a6a40;
   }
 
   .muted {
     color: #5a5650;
     font-size: 0.8rem;
-    margin: 0.5rem;
-  }
-
-  button {
-    border: 1px solid transparent;
-    background: transparent;
-    color: #8a8580;
-    border-radius: 4px;
-    padding: 0.3rem 0.6rem;
-    cursor: pointer;
-    font-size: 0.8rem;
-    transition: color 0.15s, background 0.15s;
-  }
-
-  button:hover {
-    color: #e0ddd8;
-    background: #2a2a2a;
-  }
-
-  button:disabled {
-    opacity: 0.35;
-    cursor: default;
+    margin: 0.75rem;
   }
 </style>

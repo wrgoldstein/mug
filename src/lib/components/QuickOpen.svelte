@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { readDir } from "@tauri-apps/plugin-fs";
-  import { joinPath, relativePath } from "$lib/utils/path";
+  import { onMount } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
+  import { joinPath } from "$lib/utils/path";
 
   interface Props {
     rootDir: string;
@@ -10,63 +11,25 @@
 
   let { rootDir, onselect, onclose }: Props = $props();
 
-  import { onMount } from "svelte";
-
   let query = $state("");
-  let allFiles = $state<string[]>([]);
+  let results = $state<string[]>([]);
   let selectedIdx = $state(0);
   let inputEl = $state<HTMLInputElement | null>(null);
-  let indexing = $state(true);
+  let mouseActive = $state(false);
 
-  const IGNORED_DIRS = new Set(["node_modules", "target", "dist", "build", ".git", ".svelte-kit"]);
-  const MAX_RESULTS = 50;
-
-  // Fuzzy match: all query chars must appear in order in the candidate
-  function fuzzyMatch(query: string, candidate: string): { match: boolean; score: number } {
-    const q = query.toLowerCase();
-    const c = candidate.toLowerCase();
-
-    let qi = 0;
-    let score = 0;
-    let prevIdx = -1;
-
-    for (let ci = 0; ci < c.length && qi < q.length; ci++) {
-      if (c[ci] === q[qi]) {
-        // Bonus for consecutive matches
-        if (ci === prevIdx + 1) score += 2;
-        // Bonus for matching after separator
-        if (ci === 0 || c[ci - 1] === "/" || c[ci - 1] === "-" || c[ci - 1] === "_" || c[ci - 1] === ".") score += 3;
-        score += 1;
-        prevIdx = ci;
-        qi++;
-      }
+  async function search(q: string) {
+    try {
+      results = await invoke<string[]>("fzf_files", { dir: rootDir, query: q });
+    } catch {
+      results = [];
     }
-
-    if (qi < q.length) return { match: false, score: 0 };
-
-    // Bonus for shorter paths (prefer closer matches)
-    score -= candidate.length * 0.1;
-    // Bonus for matching filename vs deep path
-    const name = candidate.split("/").pop() || candidate;
-    if (name.toLowerCase().includes(q)) score += 10;
-
-    return { match: true, score };
+    selectedIdx = 0;
   }
 
-  let filtered = $derived.by(() => {
-    if (!query) return allFiles.slice(0, MAX_RESULTS);
-
-    return allFiles
-      .map((f) => ({ path: f, ...fuzzyMatch(query, f) }))
-      .filter((r) => r.match)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, MAX_RESULTS)
-      .map((r) => r.path);
-  });
-
-  function onInput(event: Event) {
-    query = (event.target as HTMLInputElement).value;
-    selectedIdx = 0;
+  let debounceTimer: number;
+  function onInput() {
+    clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(() => search(query), 50);
   }
 
   function onKeyDown(event: KeyboardEvent) {
@@ -79,7 +42,7 @@
 
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      selectedIdx = Math.min(selectedIdx + 1, filtered.length - 1);
+      selectedIdx = Math.min(selectedIdx + 1, results.length - 1);
       scrollSelectedIntoView();
       return;
     }
@@ -93,9 +56,8 @@
 
     if (event.key === "Enter") {
       event.preventDefault();
-      if (filtered.length > 0) {
-        const rel = filtered[selectedIdx];
-        onselect(joinPath(rootDir, rel));
+      if (results[selectedIdx]) {
+        onselect(joinPath(rootDir, results[selectedIdx]));
       }
       return;
     }
@@ -108,72 +70,34 @@
     });
   }
 
-  function selectItem(idx: number) {
-    const rel = filtered[idx];
-    onselect(joinPath(rootDir, rel));
-  }
-
-  const MAX_INDEX = 1000;
-  let indexCount = 0;
-
-  async function indexFiles(dirPath: string, prefix: string): Promise<string[]> {
-    if (indexCount >= MAX_INDEX) return [];
-    const results: string[] = [];
-    try {
-      const entries = await readDir(dirPath);
-      for (const entry of entries) {
-        if (indexCount >= MAX_INDEX) break;
-        if (entry.name.startsWith(".")) continue;
-
-        const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-
-        if (entry.isDirectory) {
-          if (IGNORED_DIRS.has(entry.name)) continue;
-          const sub = await indexFiles(joinPath(dirPath, entry.name), rel);
-          results.push(...sub);
-        } else {
-          results.push(rel);
-          indexCount++;
-        }
-      }
-    } catch {
-      // permission errors etc
-    }
-    return results;
-  }
-
   onMount(() => {
     inputEl?.focus();
-    indexCount = 0;
-    indexFiles(rootDir, "").then((files) => {
-      allFiles = files.sort();
-      indexing = false;
-    });
+    search("");
   });
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="quick-open-overlay" onmousedown={(e) => { if (e.target === e.currentTarget) onclose(); }}>
-  <div class="quick-open">
+  <div class="quick-open" class:mouse-active={mouseActive} onmousemove={() => mouseActive = true}>
     <input
       bind:this={inputEl}
       type="text"
-      value={query}
+      placeholder="Search files…"
+      bind:value={query}
       oninput={onInput}
       onkeydown={onKeyDown}
-      placeholder={indexing ? "Indexing files…" : `Search ${allFiles.length} files…`}
       class="quick-open-input"
     />
     <div class="quick-open-list">
-      {#if filtered.length === 0 && query}
+      {#if results.length === 0 && query}
         <div class="quick-open-empty">No matches</div>
       {:else}
-        {#each filtered as path, i}
+        {#each results as path, i (path)}
           <button
             class="quick-open-item"
             class:selected={i === selectedIdx}
-            onmousedown={() => selectItem(i)}
-            onmouseenter={() => selectedIdx = i}
+            onmousedown={() => onselect(joinPath(rootDir, path))}
+            onmouseenter={() => { if (mouseActive) selectedIdx = i; }}
           >
             <span class="quick-open-name">{path.split("/").pop()}</span>
             <span class="quick-open-path">{path}</span>
@@ -239,19 +163,24 @@
     text-align: left;
     padding: 0.4rem 0.75rem;
     border: none;
+    border-left: 2px solid transparent;
     border-radius: 3px;
     background: transparent;
     color: #e0ddd8;
     cursor: pointer;
     font-size: 0.82rem;
+    font-family: inherit;
     transition: background 0.1s;
   }
 
-  .quick-open-item:hover,
   .quick-open-item.selected {
     background: #2a2a2a;
-    border-left: 2px solid #c8956c;
-    padding-left: calc(0.75rem - 2px);
+    border-left-color: #c8956c;
+  }
+
+  .quick-open.mouse-active .quick-open-item:hover {
+    background: #2a2a2a;
+    border-left-color: #c8956c;
   }
 
   .quick-open-name {

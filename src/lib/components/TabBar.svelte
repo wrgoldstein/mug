@@ -39,6 +39,17 @@
       >×</button>
     </div>
   {/each}
+  <div class="tab-spacer"></div>
+  <div class="mug-icon">
+    <svg width="16" height="18" viewBox="0 0 16 18" fill="none">
+      <path class="steam steam-1" d="M4.5 5 Q5.5 3.5 4.5 2 Q3.5 0.5 4.5 -1" stroke="#c8956c" stroke-width="1" stroke-linecap="round" fill="none" opacity="0.5"/>
+      <path class="steam steam-2" d="M6.5 5 Q7.5 3.5 6.5 2 Q5.5 0.5 6.5 -1" stroke="#c8956c" stroke-width="1" stroke-linecap="round" fill="none" opacity="0.45"/>
+      <path class="steam steam-3" d="M8.5 5 Q9.5 3.5 8.5 2 Q7.5 0.5 8.5 -1" stroke="#c8956c" stroke-width="1" stroke-linecap="round" fill="none" opacity="0.5"/>
+      <rect x="2" y="5" width="8" height="9" rx="1.5" stroke="#c8956c" stroke-width="1.2" fill="none"/>
+      <path d="M10 7.5h1.5a1.5 1.5 0 0 1 0 3H10" stroke="#c8956c" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+      <rect x="1.5" y="14" width="9" height="1.2" rx="0.6" fill="#c8956c" opacity="0.4"/>
+    </svg>
+  </div>
 </div>
 
 <style>
@@ -110,5 +121,50 @@
   .tab-close:hover {
     opacity: 1;
     background: #333;
+  }
+
+  .tab-spacer {
+    flex: 1;
+  }
+
+  .mug-icon {
+    display: flex;
+    align-items: center;
+    padding: 0 0.75rem;
+    flex-shrink: 0;
+    opacity: 0.7;
+  }
+
+  .steam {
+    animation: rise 3s ease-in-out infinite;
+  }
+
+  .steam-1 {
+    animation-delay: 0s;
+  }
+
+  .steam-2 {
+    animation-delay: 1s;
+  }
+
+  .steam-3 {
+    animation-delay: 2s;
+  }
+
+  @keyframes rise {
+    0% {
+      transform: translateY(0);
+      opacity: 0;
+    }
+    15% {
+      opacity: 0.6;
+    }
+    75% {
+      opacity: 0.25;
+    }
+    100% {
+      transform: translateY(-5px);
+      opacity: 0;
+    }
   }
 </style>

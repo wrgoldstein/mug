@@ -4,11 +4,13 @@
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { readTextFile, writeTextFile, stat } from "@tauri-apps/plugin-fs";
   import type { BundledLanguage, BundledTheme } from "shiki";
-  import { fileName, detectLanguage } from "$lib/utils/path";
+  import { fileName, detectLanguage, relativePath, shortPath } from "$lib/utils/path";
   import FileSidebar from "$lib/components/FileSidebar.svelte";
   import CodeEditor from "$lib/components/CodeEditor.svelte";
   import QuickOpen from "$lib/components/QuickOpen.svelte";
   import TabBar from "$lib/components/TabBar.svelte";
+  import WelcomeScreen from "$lib/components/WelcomeScreen.svelte";
+  import DirectoryPicker from "$lib/components/DirectoryPicker.svelte";
 
   // ── Tab model ──────────────────────────────────────────────
   interface Tab {
@@ -33,10 +35,10 @@
     };
   }
 
-  const initialTab = createTab(null, "");
-  let tabs = $state<Tab[]>([initialTab]);
-  let activeTabId = $state<string>(initialTab.id);
-  let activeTab = $derived(tabs.find(t => t.id === activeTabId) ?? tabs[0]);
+  let tabs = $state<Tab[]>([]);
+  let activeTabId = $state<string | null>(null);
+  let activeTab = $derived(tabs.find(t => t.id === activeTabId) ?? null);
+  let showWelcome = $derived(tabs.length === 0);
 
   // ── Global state ───────────────────────────────────────────
   let selectedTheme = $state<BundledTheme>("nord");
@@ -54,7 +56,27 @@
   let sidebarRef: FileSidebar | null = $state(null);
   let editorRef: CodeEditor | null = $state(null);
 
-  const languageOptions: BundledLanguage[] = ["ts", "js", "python", "svelte", "json", "md", "html", "css", "rust", "bash"];
+  const SIDEBAR_MIN = 140;
+  const SIDEBAR_MAX = 500;
+  let sidebarWidth = $state(260);
+  let draggingSidebar = $state(false);
+
+  function onDragStart(e: MouseEvent) {
+    e.preventDefault();
+    draggingSidebar = true;
+    const onMove = (e: MouseEvent) => {
+      sidebarWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, e.clientX));
+    };
+    const onUp = () => {
+      draggingSidebar = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
+  const languageOptions: BundledLanguage[] = ["ts", "js", "python", "ruby", "go", "rust", "svelte", "json", "yaml", "toml", "sql", "md", "html", "css", "bash", "plaintext"];
   const themeOptions: BundledTheme[] = ["github-dark", "github-light", "dracula", "nord"];
 
   // ── Tab helpers ────────────────────────────────────────────
@@ -91,10 +113,7 @@
     tabs.splice(idx, 1);
 
     if (tabs.length === 0) {
-      // Always keep at least one tab
-      const fresh = createTab(null, "");
-      tabs.push(fresh);
-      activeTabId = fresh.id;
+      activeTabId = null;
     } else if (id === activeTabId) {
       // Activate neighbor
       const newIdx = Math.min(idx, tabs.length - 1);
@@ -201,15 +220,27 @@
     }
   });
 
-  function onLanguageChange(event: Event) {
-    const lang = (event.target as HTMLSelectElement).value as BundledLanguage;
-    if (activeTab) activeTab.language = lang;
-    status = `Language: ${lang}`;
-  }
+  let showModePicker = $state(false);
+  let showDirPicker = $state(false);
 
-  function onThemeChange(event: Event) {
-    selectedTheme = (event.target as HTMLSelectElement).value as BundledTheme;
-    status = `Theme: ${selectedTheme}`;
+  async function openDirectoryFromPicker(path: string) {
+    showDirPicker = false;
+    await sidebarRef?.openDirectoryPath(path);
+    showSidebar = true;
+    fetchGitBranch();
+  }
+  let modePickerType = $state<"language" | "theme">("language");
+
+  let gitBranch = $state<string | null>(null);
+
+  async function fetchGitBranch() {
+    const root = sidebarRef?.getRootDir();
+    if (!root) { gitBranch = null; return; }
+    try {
+      gitBranch = await invoke<string | null>("get_git_branch", { path: root });
+    } catch {
+      gitBranch = null;
+    }
   }
 
   function openFind() {
@@ -223,8 +254,18 @@
 
   // ── Keyboard shortcuts ─────────────────────────────────────
   onMount(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
+    const onKeyDown = async (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (showDirPicker) {
+          event.preventDefault();
+          showDirPicker = false;
+          return;
+        }
+        if (showModePicker) {
+          event.preventDefault();
+          showModePicker = false;
+          return;
+        }
         if (showQuickOpen) {
           event.preventDefault();
           showQuickOpen = false;
@@ -250,8 +291,7 @@
         event.preventDefault();
         if (event.shiftKey) openFile();
         else {
-          sidebarRef?.openDirectory();
-          showSidebar = true;
+          showDirPicker = true;
         }
       }
 
@@ -262,7 +302,7 @@
 
       if (event.key.toLowerCase() === "w") {
         event.preventDefault();
-        closeTab(activeTabId);
+        if (activeTabId) closeTab(activeTabId);
       }
 
       if (event.key.toLowerCase() === "b") {
@@ -333,9 +373,12 @@
       try {
         const info = await stat(target);
         if (info.isDirectory) {
-          sidebarRef?.openDirectoryPath(target);
+          await sidebarRef?.openDirectoryPath(target);
+          showSidebar = true;
+          fetchGitBranch();
         } else if (info.isFile) {
           await openPath(target);
+          fetchGitBranch();
         }
       } catch {
         status = `Could not open: ${target}`;
@@ -347,32 +390,7 @@
 </script>
 
 <main>
-  <header>
-    <h1>{fileName(activeTab?.path ?? null)}{#if activeTab?.isDirty}<span class="dirty-dot"> •</span>{/if}</h1>
-    <div class="actions">
-      <button onclick={newFile}>New</button>
-      <button onclick={openFile}>Open File</button>
-      <button onclick={() => { sidebarRef?.openDirectory(); showSidebar = true; }}>Open Folder</button>
-      <button onclick={saveFile}>Save</button>
-      <button onclick={saveAsFile}>Save As</button>
-      <label>
-        Lang
-        <select value={activeTab?.language ?? "ts"} onchange={onLanguageChange}>
-          {#each languageOptions as lang}
-            <option value={lang}>{lang}</option>
-          {/each}
-        </select>
-      </label>
-      <label>
-        Theme
-        <select value={selectedTheme} onchange={onThemeChange}>
-          {#each themeOptions as theme}
-            <option value={theme}>{theme}</option>
-          {/each}
-        </select>
-      </label>
-    </div>
-  </header>
+
 
   <TabBar
     {tabs}
@@ -381,7 +399,12 @@
     onclose={closeTab}
   />
 
-  <section class="workspace" class:sidebar-hidden={!showSidebar}>
+  <section
+    class="workspace"
+    class:sidebar-hidden={!showSidebar}
+    class:dragging={draggingSidebar}
+    style={showSidebar ? `grid-template-columns: ${sidebarWidth}px 4px 1fr` : undefined}
+  >
     <FileSidebar
       bind:this={sidebarRef}
       onfileopen={openPath}
@@ -389,7 +412,13 @@
       hidden={!showSidebar}
     />
 
-    {#if activeTab}
+    {#if showSidebar}
+      <div class="resize-handle" onmousedown={onDragStart}></div>
+    {/if}
+
+    {#if showWelcome}
+      <WelcomeScreen />
+    {:else if activeTab}
       {#key activeTabId}
         <CodeEditor
           bind:this={editorRef}
@@ -406,6 +435,13 @@
     {/if}
   </section>
 
+  {#if showDirPicker}
+    <DirectoryPicker
+      onselect={openDirectoryFromPicker}
+      onclose={() => showDirPicker = false}
+    />
+  {/if}
+
   {#if showQuickOpen}
     {@const root = sidebarRef?.getRootDir()}
     {#if root}
@@ -418,8 +454,18 @@
   {/if}
 
   <footer>
-    <span>{status}</span>
-    <span>{activeTab?.path ?? "No file selected"}</span>
+    <span class="footer-left">
+      {#if sidebarRef?.getRootDir()}
+        <span class="footer-root">{fileName(sidebarRef.getRootDir())}</span>
+      {/if}
+      {#if gitBranch}
+        <span class="footer-branch"><span class="branch-icon">⎇</span> {gitBranch}</span>
+      {/if}
+    </span>
+    <span class="footer-right">
+      <span class="footer-lang">{activeTab?.language ?? ""}</span>
+      <span>{activeTab?.path ? shortPath(relativePath(activeTab.path, sidebarRef?.getRootDir() ?? null)) : ""}</span>
+    </span>
   </footer>
 </main>
 
@@ -434,83 +480,44 @@
   main {
     height: 100vh;
     display: grid;
-    grid-template-rows: auto auto 1fr auto;
+    grid-template-rows: auto 1fr auto;
   }
 
-  header,
   footer {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.5rem 1rem;
-    background: #222222;
-    border-bottom: 1px solid #2a2a2a;
-    gap: 1rem;
-  }
-
-  footer {
-    border-top: 1px solid #2a2a2a;
-    border-bottom: none;
-    font-size: 0.8rem;
-    color: #706b63;
     padding: 0.4rem 1rem;
-  }
-
-  .actions {
-    display: flex;
-    gap: 0.35rem;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-
-  button,
-  select {
-    border: 1px solid transparent;
-    background: transparent;
-    color: #8a8580;
-    border-radius: 4px;
-    padding: 0.3rem 0.6rem;
-    font-size: 0.8rem;
-    letter-spacing: 0.01em;
-  }
-
-  button {
-    cursor: pointer;
-    transition: color 0.15s, background 0.15s;
-  }
-
-  button:hover {
-    color: #d4a574;
-    background: #2a2a2a;
-  }
-
-  button:disabled {
-    opacity: 0.35;
-    cursor: default;
-  }
-
-  label {
+    background: #222222;
+    border-top: 1px solid #2a2a2a;
     font-size: 0.8rem;
     color: #706b63;
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-  }
-
-  select {
-    border: 1px solid #333;
-    background: #252525;
-    color: #8a8580;
   }
 
   .workspace {
     display: grid;
-    grid-template-columns: 260px 1fr;
+    grid-template-columns: 260px 4px 1fr;
     min-height: 0;
   }
 
   .workspace.sidebar-hidden {
     grid-template-columns: 1fr;
+  }
+
+  .workspace.dragging {
+    cursor: col-resize;
+    user-select: none;
+  }
+
+  .resize-handle {
+    background: transparent;
+    cursor: col-resize;
+    transition: background 0.15s;
+  }
+
+  .resize-handle:hover,
+  .workspace.dragging .resize-handle {
+    background: #c8956c;
   }
 
   h1 {
@@ -526,5 +533,34 @@
 
   .dirty-dot {
     color: #c8956c;
+  }
+
+  .footer-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .footer-root {
+    color: #a09a92;
+  }
+
+  .footer-branch {
+    color: #706b63;
+  }
+
+  .branch-icon {
+    color: #c8956c;
+  }
+
+  .footer-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .footer-lang {
+    color: #c8956c;
+    letter-spacing: 0.02em;
   }
 </style>

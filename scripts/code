@@ -1,15 +1,14 @@
 #!/bin/bash
 # CLI launcher for Mug
-# Usage: code [path]
-#   code .                 Open current directory
-#   code /path/to/dir      Open a directory
-#   code /path/to/file.rs  Open a file
-#   code                   Open with no args
+# Usage: mug [path]
+#   mug .                 Open current directory
+#   mug /path/to/dir      Open a directory
+#   mug /path/to/file.rs  Open a file
+#   mug                   Open with no args
 
 APP="/Applications/Mug.app"
-BIN="$APP/Contents/MacOS/Mug"
 
-if [ ! -x "$BIN" ]; then
+if [ ! -d "$APP" ]; then
   echo "Mug not found at $APP"
   echo "Run ./scripts/deploy to build and install."
   exit 1
@@ -18,12 +17,7 @@ fi
 if [ -n "$1" ]; then
   # Resolve to absolute path
   TARGET="$(cd "$(dirname "$1")" 2>/dev/null && pwd)/$(basename "$1")"
-  "$BIN" "$TARGET" &
+  open -a "$APP" --args "$TARGET"
 else
-  "$BIN" &
+  open -a "$APP"
 fi
-
-disown
-
-# Bring the app window to the foreground
-open -a "$APP"

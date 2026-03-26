@@ -27,6 +27,17 @@ export function relativePath(path: string, base: string | null): string {
   return rel || ".";
 }
 
+/**
+ * Shorten a path by collapsing middle segments to "…" if too deep.
+ * e.g. "src/lib/components/deep/nested/File.svelte" → "src/…/nested/File.svelte"
+ * Keeps the first segment and last two segments visible.
+ */
+export function shortPath(path: string, maxSegments = 4): string {
+  const parts = path.split(/[\\/]/);
+  if (parts.length <= maxSegments) return parts.join("/");
+  return [parts[0], "…", ...parts.slice(-2)].join("/");
+}
+
 export function detectLanguage(path: string): BundledLanguage {
   const ext = path.split(".").pop()?.toLowerCase();
   switch (ext) {
@@ -48,10 +59,21 @@ export function detectLanguage(path: string): BundledLanguage {
       return "css";
     case "rs":
       return "rust";
+    case "rb":
+      return "ruby";
+    case "yml":
+    case "yaml":
+      return "yaml";
+    case "toml":
+      return "toml";
+    case "sql":
+      return "sql";
+    case "go":
+      return "go";
     case "sh":
     case "bash":
       return "bash";
     default:
-      return "ts";
+      return "plaintext";
   }
 }
