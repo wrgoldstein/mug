@@ -10,9 +10,10 @@
 
   let { rootDir, onselect, onclose }: Props = $props();
 
+  import { onMount } from "svelte";
+
   let query = $state("");
   let allFiles = $state<string[]>([]);
-  let filtered = $state<string[]>([]);
   let selectedIdx = $state(0);
   let inputEl = $state<HTMLInputElement | null>(null);
   let indexing = $state(true);
@@ -52,26 +53,20 @@
     return { match: true, score };
   }
 
-  function updateFiltered() {
-    if (!query) {
-      filtered = allFiles.slice(0, MAX_RESULTS);
-      selectedIdx = 0;
-      return;
-    }
+  let filtered = $derived.by(() => {
+    if (!query) return allFiles.slice(0, MAX_RESULTS);
 
-    const scored = allFiles
+    return allFiles
       .map((f) => ({ path: f, ...fuzzyMatch(query, f) }))
       .filter((r) => r.match)
       .sort((a, b) => b.score - a.score)
-      .slice(0, MAX_RESULTS);
-
-    filtered = scored.map((r) => r.path);
-    selectedIdx = 0;
-  }
+      .slice(0, MAX_RESULTS)
+      .map((r) => r.path);
+  });
 
   function onInput(event: Event) {
     query = (event.target as HTMLInputElement).value;
-    updateFiltered();
+    selectedIdx = 0;
   }
 
   function onKeyDown(event: KeyboardEvent) {
@@ -147,23 +142,13 @@
     return results;
   }
 
-  // Index on mount
-  $effect(() => {
-    void rootDir; // reactive dep
-    indexing = true;
+  onMount(() => {
+    inputEl?.focus();
     indexCount = 0;
-    void indexFiles(rootDir, "").then((files) => {
+    indexFiles(rootDir, "").then((files) => {
       allFiles = files.sort();
       indexing = false;
-      updateFiltered();
     });
-  });
-
-  // Focus input on mount
-  $effect(() => {
-    if (inputEl) {
-      requestAnimationFrame(() => inputEl?.focus());
-    }
   });
 </script>
 
