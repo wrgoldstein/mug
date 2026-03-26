@@ -38,8 +38,22 @@ export function shortPath(path: string, maxSegments = 4): string {
   return [parts[0], "…", ...parts.slice(-2)].join("/");
 }
 
+const SHELL_FILES = new Set([
+  ".zshrc", ".bashrc", ".bash_profile", ".bash_login", ".bash_logout",
+  ".profile", ".zprofile", ".zshenv", ".zlogin", ".zlogout",
+  ".env", ".envrc", ".xinitrc", ".xprofile",
+]);
+
 export function detectLanguage(path: string): BundledLanguage {
-  const ext = path.split(".").pop()?.toLowerCase();
+  const name = path.split(/[\\/]/).pop()?.toLowerCase() ?? "";
+
+  // Known dotfiles / filenames
+  if (SHELL_FILES.has(name)) return "bash";
+  if (name === "makefile" || name === "gnumakefile") return "makefile" as BundledLanguage;
+  if (name === "dockerfile") return "dockerfile" as BundledLanguage;
+  if (name === "justfile") return "makefile" as BundledLanguage;
+
+  const ext = name.split(".").pop()?.toLowerCase();
   switch (ext) {
     case "ts":
       return "ts";
