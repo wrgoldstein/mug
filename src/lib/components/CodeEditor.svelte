@@ -177,6 +177,27 @@
       .replaceAll("'", "&#39;");
   }
 
+  // Synchronous highlight — used during typing when lang/theme are already loaded
+  function highlightSync() {
+    if (!highlighter) {
+      highlightedHtml = `<pre class="shiki"><code>${escapeHtml(content)}</code></pre>`;
+      return;
+    }
+
+    let html = highlighter.codeToHtml(content || " ", {
+      lang: language,
+      theme: theme
+    });
+
+    if (language === "md" || language === "markdown") {
+      html = enhanceMarkdown(html);
+    }
+
+    highlightedHtml = html;
+    syncScroll();
+  }
+
+  // Async highlight — used when language or theme changes (needs loading)
   async function renderHighlight() {
     if (!highlighter) {
       highlightedHtml = `<pre class="shiki"><code>${escapeHtml(content)}</code></pre>`;
@@ -185,20 +206,7 @@
 
     await highlighter.loadLanguage(language);
     await highlighter.loadTheme(theme);
-
-    let html = highlighter.codeToHtml(content || " ", {
-      lang: language,
-      theme: theme
-    });
-
-    // Enhance markdown rendering
-    if (language === "md" || language === "markdown") {
-      html = enhanceMarkdown(html);
-    }
-
-    highlightedHtml = html;
-
-    syncScroll();
+    highlightSync();
   }
 
   function syncScroll() {
@@ -208,17 +216,16 @@
   }
 
   function scheduleHighlight() {
-    if (highlightTimer) window.clearTimeout(highlightTimer);
-    highlightTimer = window.setTimeout(() => {
-      void renderHighlight();
-    }, 40);
+    if (highlightTimer) cancelAnimationFrame(highlightTimer);
+    highlightTimer = requestAnimationFrame(highlightSync);
   }
 
   function onInput(event: Event) {
     const value = (event.target as HTMLTextAreaElement).value;
     onchange(value);
     isDirty = true;
-    scheduleHighlight();
+    // Skip scheduleHighlight — the $effect watching `content` handles it.
+    // This avoids double-firing and keeps one clean path.
   }
 
   // Characters after which we add an extra indent level on Enter
@@ -343,13 +350,17 @@
     textareaEl?.focus();
   }
 
-  // Re-highlight when language, theme, or content changes externally
+  // Re-highlight on content changes (fast path, next frame)
   $effect(() => {
-    // Touch reactive deps
-    void language;
-    void theme;
     void content;
     scheduleHighlight();
+  });
+
+  // Re-highlight on language/theme changes (async, needs loading)
+  $effect(() => {
+    void language;
+    void theme;
+    void renderHighlight();
   });
 
   onMount(() => {
