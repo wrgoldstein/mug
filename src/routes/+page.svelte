@@ -66,10 +66,9 @@
     }
   }
 
-  function selectMatch(idx: number) {
+  function selectMatch(idx: number, focusTextarea = true) {
     if (!textareaEl || idx < 0 || idx >= findMatches.length) return;
     const m = findMatches[idx];
-    textareaEl.focus();
     textareaEl.setSelectionRange(m.start, m.end);
 
     // Scroll the match into view by computing line/col
@@ -79,6 +78,8 @@
     const targetTop = line * lineHeight - textareaEl.clientHeight / 3;
     textareaEl.scrollTop = Math.max(0, targetTop);
     syncScroll();
+
+    if (focusTextarea) textareaEl.focus();
   }
 
   function findNext() {
@@ -124,7 +125,7 @@
         nearest = i;
       }
       findCurrentIdx = nearest;
-      selectMatch(findCurrentIdx);
+      selectMatch(findCurrentIdx, false);
     }
   }
 
@@ -144,7 +145,8 @@
   function toggleCaseSensitive() {
     findCaseSensitive = !findCaseSensitive;
     computeMatches();
-    if (findMatches.length > 0) selectMatch(findCurrentIdx);
+    if (findMatches.length > 0) selectMatch(findCurrentIdx, false);
+    findInputEl?.focus();
   }
 
   const languageOptions: BundledLanguage[] = ["ts", "js", "python", "svelte", "json", "md", "html", "css", "rust", "bash"];
