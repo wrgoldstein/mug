@@ -29,6 +29,11 @@
   let debounceTimer: number;
   function onInput() {
     clearTimeout(debounceTimer);
+    if (!query) {
+      results = [];
+      selectedIdx = 0;
+      return;
+    }
     debounceTimer = window.setTimeout(() => search(query), 50);
   }
 
@@ -72,7 +77,6 @@
 
   onMount(() => {
     inputEl?.focus();
-    search("");
   });
 </script>
 
