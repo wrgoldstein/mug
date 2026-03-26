@@ -189,19 +189,19 @@
     position: fixed;
     inset: 0;
     z-index: 100;
-    background: rgba(0, 0, 0, 0.4);
+    background: rgba(0, 0, 0, 0.5);
     display: flex;
     justify-content: center;
     padding-top: 15vh;
   }
 
   .quick-open {
-    width: min(600px, 90vw);
+    width: min(560px, 90vw);
     max-height: 60vh;
-    background: #1f2937;
-    border: 1px solid #374151;
-    border-radius: 10px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    background: #222222;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -210,18 +210,19 @@
 
   .quick-open-input {
     width: 100%;
-    padding: 0.75rem 1rem;
+    padding: 0.7rem 1rem;
     border: none;
-    border-bottom: 1px solid #374151;
-    background: #111827;
-    color: #f9fafb;
-    font-size: 1rem;
+    border-bottom: 1px solid #2a2a2a;
+    background: #1a1a1a;
+    color: #e0ddd8;
+    font-size: 0.95rem;
     outline: none;
     box-sizing: border-box;
+    letter-spacing: 0.01em;
   }
 
   .quick-open-input::placeholder {
-    color: #6b7280;
+    color: #5a5650;
   }
 
   .quick-open-list {
@@ -236,28 +237,31 @@
     gap: 0.75rem;
     width: 100%;
     text-align: left;
-    padding: 0.45rem 0.75rem;
+    padding: 0.4rem 0.75rem;
     border: none;
-    border-radius: 6px;
+    border-radius: 3px;
     background: transparent;
-    color: #f9fafb;
+    color: #e0ddd8;
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
+    transition: background 0.1s;
   }
 
   .quick-open-item:hover,
   .quick-open-item.selected {
-    background: #374151;
+    background: #2a2a2a;
+    border-left: 2px solid #c8956c;
+    padding-left: calc(0.75rem - 2px);
   }
 
   .quick-open-name {
-    font-weight: 600;
+    font-weight: 500;
     white-space: nowrap;
   }
 
   .quick-open-path {
-    color: #9ca3af;
-    font-size: 0.78rem;
+    color: #5a5650;
+    font-size: 0.76rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -265,8 +269,8 @@
 
   .quick-open-empty {
     padding: 1rem;
-    color: #9ca3af;
+    color: #5a5650;
     text-align: center;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
   }
 </style>

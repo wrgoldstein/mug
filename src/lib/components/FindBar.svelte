@@ -158,51 +158,54 @@
     align-items: center;
     gap: 0.35rem;
     padding: 0.4rem 0.6rem;
-    background: #1f2937;
-    border: 1px solid #374151;
+    background: #222222;
+    border: 1px solid #2a2a2a;
     border-top: none;
-    border-radius: 0 0 8px 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    border-radius: 0 0 4px 4px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
   }
 
   .find-input {
     width: 220px;
     padding: 0.3rem 0.5rem;
-    border: 1px solid #4b5563;
-    border-radius: 4px;
-    background: #111827;
-    color: #f9fafb;
-    font-size: 0.85rem;
+    border: 1px solid #333;
+    border-radius: 3px;
+    background: #1a1a1a;
+    color: #e0ddd8;
+    font-size: 0.82rem;
     outline: none;
+    transition: border-color 0.15s;
   }
 
   .find-input:focus {
-    border-color: #3b82f6;
+    border-color: #c8956c;
   }
 
   .find-count {
-    font-size: 0.78rem;
-    color: #9ca3af;
+    font-size: 0.76rem;
+    color: #706b63;
     min-width: 70px;
     text-align: center;
   }
 
   button {
-    border: 1px solid #4b5563;
-    background: #374151;
-    color: #f9fafb;
-    border-radius: 4px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #8a8580;
+    border-radius: 3px;
     padding: 0.2rem 0.5rem;
     font-size: 0.78rem;
     cursor: pointer;
+    transition: color 0.15s, background 0.15s;
   }
 
   button:hover {
-    background: #4b5563;
+    color: #e0ddd8;
+    background: #2a2a2a;
   }
 
   button:disabled {
-    opacity: 0.5;
+    opacity: 0.35;
     cursor: default;
   }
 
@@ -213,7 +216,7 @@
 
   .find-case-btn.active {
     opacity: 1;
-    background: #3b82f6;
-    border-color: #3b82f6;
+    color: #1a1a1a;
+    background: #c8956c;
   }
 </style>

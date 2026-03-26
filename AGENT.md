@@ -1,4 +1,4 @@
-# tauri-svelte-editor
+# Mug
 
 A **desktop code/text editor** built with **Tauri v2 + SvelteKit + TypeScript**.
 
@@ -20,7 +20,7 @@ A **desktop code/text editor** built with **Tauri v2 + SvelteKit + TypeScript**.
 
 - FS access scoped to `$HOME/**`
 - Dialog & opener plugins enabled
-- Window: 800×600, titled "tauri-svelte-editor"
+- Window: 800×600, titled "Mug"
 
 ## UI Layout
 

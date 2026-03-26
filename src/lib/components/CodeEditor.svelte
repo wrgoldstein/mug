@@ -40,6 +40,31 @@
     findBarRef?.prevMatch();
   }
 
+  export function getScrollPos(): { scrollTop: number; scrollLeft: number } {
+    return {
+      scrollTop: textareaEl?.scrollTop ?? 0,
+      scrollLeft: textareaEl?.scrollLeft ?? 0,
+    };
+  }
+
+  export function getCursorPos(): { selectionStart: number; selectionEnd: number } {
+    return {
+      selectionStart: textareaEl?.selectionStart ?? 0,
+      selectionEnd: textareaEl?.selectionEnd ?? 0,
+    };
+  }
+
+  export function restoreState(scroll: { scrollTop: number; scrollLeft: number }, cursor: { selectionStart: number; selectionEnd: number }) {
+    requestAnimationFrame(() => {
+      if (!textareaEl) return;
+      textareaEl.selectionStart = cursor.selectionStart;
+      textareaEl.selectionEnd = cursor.selectionEnd;
+      textareaEl.scrollTop = scroll.scrollTop;
+      textareaEl.scrollLeft = scroll.scrollLeft;
+      syncScroll();
+    });
+  }
+
   function escapeHtml(text: string) {
     return text
       .replaceAll("&", "&amp;")
@@ -256,7 +281,7 @@
     position: relative;
     min-height: 0;
     overflow: hidden;
-    background: #0f172a;
+    background: #1a1a1a;
   }
 
   .code-layer,
@@ -330,10 +355,10 @@
     resize: none;
     background: transparent;
     color: transparent;
-    caret-color: #f9fafb;
+    caret-color: #c8956c;
   }
 
   textarea::selection {
-    background: rgba(59, 130, 246, 0.35);
+    background: rgba(200, 149, 108, 0.15);
   }
 </style>

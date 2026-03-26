@@ -6,9 +6,10 @@
   interface Props {
     onfileopen: (path: string) => void;
     onstatus: (msg: string) => void;
+    hidden?: boolean;
   }
 
-  let { onfileopen, onstatus }: Props = $props();
+  let { onfileopen, onstatus, hidden = false }: Props = $props();
 
   type SidebarEntry = {
     path: string;
@@ -117,7 +118,7 @@
   }
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" class:hidden>
   <div class="sidebar-title">{rootDir ? fileName(rootDir) : "No folder open"}</div>
 
   {#if rootDir}
@@ -145,31 +146,38 @@
 
 <style>
   .sidebar {
-    border-right: 1px solid #374151;
-    background: #0b1220;
+    border-right: 1px solid #2a2a2a;
+    background: #1e1e1e;
     min-height: 0;
     display: flex;
     flex-direction: column;
   }
 
+  .sidebar.hidden {
+    display: none;
+  }
+
   .sidebar-title {
-    padding: 0.7rem 0.75rem;
-    font-size: 0.85rem;
-    font-weight: 600;
-    border-bottom: 1px solid #1f2937;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.78rem;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #706b63;
+    border-bottom: 1px solid #2a2a2a;
   }
 
   .sidebar-nav {
     display: flex;
     align-items: center;
     gap: 0.35rem;
-    padding: 0.45rem;
-    border-bottom: 1px solid #1f2937;
+    padding: 0.4rem;
+    border-bottom: 1px solid #2a2a2a;
   }
 
   .sidebar-nav span {
-    font-size: 0.75rem;
-    color: #9ca3af;
+    font-size: 0.73rem;
+    color: #5a5650;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -179,51 +187,60 @@
     flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
-    padding: 0.4rem;
+    padding: 0.35rem;
   }
 
   .file-row {
     display: block;
     width: 100%;
     text-align: left;
-    font-size: 0.82rem;
+    font-size: 0.8rem;
     background: transparent;
     border-color: transparent;
+    color: #8a8580;
     white-space: nowrap;
     text-overflow: ellipsis;
     overflow: hidden;
-    padding: 0.35rem 0.5rem;
+    padding: 0.3rem 0.5rem;
     line-height: 1.4;
-    margin-bottom: 0.2rem;
+    margin-bottom: 0.1rem;
     box-sizing: border-box;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
   }
 
   .file-row:hover {
-    background: #1f2937;
-    border-color: #374151;
+    background: #252525;
+    color: #e0ddd8;
+    border-color: transparent;
+    border-left: 2px solid #c8956c;
+    padding-left: calc(0.5rem - 2px);
   }
 
   .muted {
-    color: #9ca3af;
-    font-size: 0.85rem;
+    color: #5a5650;
+    font-size: 0.8rem;
     margin: 0.5rem;
   }
 
   button {
-    border: 1px solid #4b5563;
-    background: #374151;
-    color: #f9fafb;
-    border-radius: 8px;
-    padding: 0.35rem 0.7rem;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #8a8580;
+    border-radius: 4px;
+    padding: 0.3rem 0.6rem;
     cursor: pointer;
+    font-size: 0.8rem;
+    transition: color 0.15s, background 0.15s;
   }
 
   button:hover {
-    background: #4b5563;
+    color: #e0ddd8;
+    background: #2a2a2a;
   }
 
   button:disabled {
-    opacity: 0.5;
+    opacity: 0.35;
     cursor: default;
   }
 </style>

@@ -1,0 +1,4 @@
+#!/bin/bash
+# Install the `mug` command globally so you can run `mug .` from anywhere
+sudo ln -sf "$(cd "$(dirname "$0")" && pwd)/code" /usr/local/bin/mug
+echo "✓ Installed: mug → $(readlink /usr/local/bin/mug)"

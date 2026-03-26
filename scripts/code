@@ -1,16 +1,16 @@
 #!/bin/bash
-# CLI launcher for tauri-svelte-editor
+# CLI launcher for Mug
 # Usage: code [path]
 #   code .                 Open current directory
 #   code /path/to/dir      Open a directory
 #   code /path/to/file.rs  Open a file
 #   code                   Open with no args
 
-APP="/Applications/tauri-svelte-editor.app"
-BIN="$APP/Contents/MacOS/tauri-svelte-editor"
+APP="/Applications/Mug.app"
+BIN="$APP/Contents/MacOS/Mug"
 
 if [ ! -x "$BIN" ]; then
-  echo "tauri-svelte-editor not found at $APP"
+  echo "Mug not found at $APP"
   echo "Run ./scripts/deploy to build and install."
   exit 1
 fi

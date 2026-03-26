@@ -8,14 +8,39 @@
   import FileSidebar from "$lib/components/FileSidebar.svelte";
   import CodeEditor from "$lib/components/CodeEditor.svelte";
   import QuickOpen from "$lib/components/QuickOpen.svelte";
+  import TabBar from "$lib/components/TabBar.svelte";
 
-  let content = $state("");
-  let currentPath = $state<string | null>(null);
-  let isDirty = $state(false);
+  // ── Tab model ──────────────────────────────────────────────
+  interface Tab {
+    id: string;
+    path: string | null;
+    content: string;
+    isDirty: boolean;
+    language: BundledLanguage;
+    scroll: { scrollTop: number; scrollLeft: number };
+    cursor: { selectionStart: number; selectionEnd: number };
+  }
+
+  function createTab(path: string | null, content: string, language?: BundledLanguage): Tab {
+    return {
+      id: crypto.randomUUID(),
+      path,
+      content,
+      isDirty: false,
+      language: language ?? (path ? detectLanguage(path) : "ts"),
+      scroll: { scrollTop: 0, scrollLeft: 0 },
+      cursor: { selectionStart: 0, selectionEnd: 0 },
+    };
+  }
+
+  const initialTab = createTab(null, "");
+  let tabs = $state<Tab[]>([initialTab]);
+  let activeTabId = $state<string>(initialTab.id);
+  let activeTab = $derived(tabs.find(t => t.id === activeTabId) ?? tabs[0]);
+
+  // ── Global state ───────────────────────────────────────────
+  let selectedTheme = $state<BundledTheme>("nord");
   let status = $state("Ready");
-
-  let selectedLanguage = $state<BundledLanguage>("ts");
-  let selectedTheme = $state<BundledTheme>("github-dark");
 
   const FONT_SIZE_MIN = 8;
   const FONT_SIZE_MAX = 32;
@@ -24,7 +49,7 @@
 
   let showFind = $state(false);
   let showQuickOpen = $state(false);
-  let showSidebar = $state(true);
+  let showSidebar = $state(false);
 
   let sidebarRef: FileSidebar | null = $state(null);
   let editorRef: CodeEditor | null = $state(null);
@@ -32,19 +57,118 @@
   const languageOptions: BundledLanguage[] = ["ts", "js", "python", "svelte", "json", "md", "html", "css", "rust", "bash"];
   const themeOptions: BundledTheme[] = ["github-dark", "github-light", "dracula", "nord"];
 
+  // ── Tab helpers ────────────────────────────────────────────
+  function snapshotActiveTab() {
+    if (!editorRef || !activeTab) return;
+    activeTab.scroll = editorRef.getScrollPos();
+    activeTab.cursor = editorRef.getCursorPos();
+  }
+
+  function switchToTab(id: string) {
+    if (id === activeTabId) return;
+    snapshotActiveTab();
+    activeTabId = id;
+    const tab = tabs.find(t => t.id === id);
+    if (tab) {
+      status = `Switched to ${fileName(tab.path)}`;
+      // Restore after the editor re-renders with new content
+      requestAnimationFrame(() => {
+        editorRef?.restoreState(tab.scroll, tab.cursor);
+      });
+    }
+  }
+
+  function closeTab(id: string) {
+    const idx = tabs.findIndex(t => t.id === id);
+    if (idx === -1) return;
+
+    const tab = tabs[idx];
+    if (tab.isDirty) {
+      // Simple confirm for now — TODO: nicer dialog
+      if (!confirm(`"${fileName(tab.path)}" has unsaved changes. Close anyway?`)) return;
+    }
+
+    tabs.splice(idx, 1);
+
+    if (tabs.length === 0) {
+      // Always keep at least one tab
+      const fresh = createTab(null, "");
+      tabs.push(fresh);
+      activeTabId = fresh.id;
+    } else if (id === activeTabId) {
+      // Activate neighbor
+      const newIdx = Math.min(idx, tabs.length - 1);
+      activeTabId = tabs[newIdx].id;
+      const tab = tabs[newIdx];
+      requestAnimationFrame(() => {
+        editorRef?.restoreState(tab.scroll, tab.cursor);
+      });
+    }
+    // Trigger reactivity
+    tabs = tabs;
+  }
+
+  function switchTabRelative(delta: number) {
+    if (tabs.length <= 1) return;
+    const idx = tabs.findIndex(t => t.id === activeTabId);
+    const newIdx = (idx + delta + tabs.length) % tabs.length;
+    switchToTab(tabs[newIdx].id);
+  }
+
+  // ── File operations (now tab-aware) ────────────────────────
   async function openPath(path: string) {
-    content = await readTextFile(path);
-    currentPath = path;
-    selectedLanguage = detectLanguage(path);
-    isDirty = false;
+    // If already open, switch to it
+    const existing = tabs.find(t => t.path === path);
+    if (existing) {
+      switchToTab(existing.id);
+      return;
+    }
+
+    snapshotActiveTab();
+    const content = await readTextFile(path);
+    const tab = createTab(path, content);
+    tabs.push(tab);
+    tabs = tabs; // trigger reactivity
+    activeTabId = tab.id;
     status = `Opened ${fileName(path)}`;
   }
 
-  async function newFile() {
-    content = "";
-    currentPath = null;
-    isDirty = false;
+  function newFile() {
+    snapshotActiveTab();
+    const tab = createTab(null, "");
+    tabs.push(tab);
+    tabs = tabs;
+    activeTabId = tab.id;
     status = "New file";
+  }
+
+  async function saveFile() {
+    if (!activeTab) return;
+    if (activeTab.path) {
+      await writeTextFile(activeTab.path, activeTab.content);
+      activeTab.isDirty = false;
+      tabs = tabs;
+      status = `Saved ${fileName(activeTab.path)}`;
+      return;
+    }
+    await saveAsFile();
+  }
+
+  async function saveAsFile() {
+    if (!activeTab) return;
+    const selected = await save({
+      filters: [{ name: "Text", extensions: ["txt", "md"] }],
+      defaultPath: activeTab.path ?? "untitled.txt"
+    });
+    if (!selected) return;
+
+    await writeTextFile(selected, activeTab.content);
+    activeTab.path = selected;
+    activeTab.language = detectLanguage(selected);
+    activeTab.isDirty = false;
+    tabs = tabs;
+    status = `Saved ${fileName(selected)}`;
+    sidebarRef?.refreshCurrentDir();
   }
 
   async function openFile() {
@@ -56,38 +180,31 @@
     await openPath(selected);
   }
 
-  async function saveFile() {
-    if (currentPath) {
-      await writeTextFile(currentPath, content);
-      isDirty = false;
-      status = `Saved ${fileName(currentPath)}`;
-      return;
-    }
-    await saveAsFile();
-  }
-
-  async function saveAsFile() {
-    const selected = await save({
-      filters: [{ name: "Text", extensions: ["txt", "md"] }],
-      defaultPath: currentPath ?? "untitled.txt"
-    });
-    if (!selected) return;
-
-    await writeTextFile(selected, content);
-    currentPath = selected;
-    selectedLanguage = detectLanguage(selected);
-    isDirty = false;
-    status = `Saved ${fileName(selected)}`;
-    sidebarRef?.refreshCurrentDir();
-  }
-
+  // ── Editor callbacks ───────────────────────────────────────
   function onEditorChange(value: string) {
-    content = value;
+    if (!activeTab) return;
+    activeTab.content = value;
   }
+
+  // Bind isDirty from CodeEditor back to active tab
+  let editorIsDirty = $state(false);
+  $effect(() => {
+    if (activeTab && editorIsDirty !== activeTab.isDirty) {
+      activeTab.isDirty = editorIsDirty;
+      tabs = tabs;
+    }
+  });
+  // Push active tab's isDirty to the editor binding
+  $effect(() => {
+    if (activeTab) {
+      editorIsDirty = activeTab.isDirty;
+    }
+  });
 
   function onLanguageChange(event: Event) {
-    selectedLanguage = (event.target as HTMLSelectElement).value as BundledLanguage;
-    status = `Language: ${selectedLanguage}`;
+    const lang = (event.target as HTMLSelectElement).value as BundledLanguage;
+    if (activeTab) activeTab.language = lang;
+    status = `Language: ${lang}`;
   }
 
   function onThemeChange(event: Event) {
@@ -97,7 +214,6 @@
 
   function openFind() {
     showFind = true;
-    // Let the CodeEditor/FindBar handle prefill after mount
     requestAnimationFrame(() => editorRef?.openFindBar());
   }
 
@@ -105,6 +221,7 @@
     showFind = false;
   }
 
+  // ── Keyboard shortcuts ─────────────────────────────────────
   onMount(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -132,12 +249,20 @@
       if (event.key.toLowerCase() === "o") {
         event.preventDefault();
         if (event.shiftKey) openFile();
-        else sidebarRef?.openDirectory();
+        else {
+          sidebarRef?.openDirectory();
+          showSidebar = true;
+        }
       }
 
       if (event.key.toLowerCase() === "n") {
         event.preventDefault();
         newFile();
+      }
+
+      if (event.key.toLowerCase() === "w") {
+        event.preventDefault();
+        closeTab(activeTabId);
       }
 
       if (event.key.toLowerCase() === "b") {
@@ -168,6 +293,18 @@
         return;
       }
 
+      // Tab switching: Cmd+Shift+[ / Cmd+Shift+]
+      if (event.key === "[" && event.shiftKey) {
+        event.preventDefault();
+        switchTabRelative(-1);
+        return;
+      }
+      if (event.key === "]" && event.shiftKey) {
+        event.preventDefault();
+        switchTabRelative(1);
+        return;
+      }
+
       if (event.key === "=" || event.key === "+") {
         event.preventDefault();
         fontSize = Math.min(FONT_SIZE_MAX, fontSize + FONT_SIZE_STEP);
@@ -189,9 +326,9 @@
 
     window.addEventListener("keydown", onKeyDown);
 
-    // Handle CLI args: `edit /path/to/dir` or `edit /path/to/file`
+    // Handle CLI args
     invoke<string[]>("get_cli_args").then(async (args) => {
-      const target = args[1]; // args[0] is the binary path
+      const target = args[1];
       if (!target) return;
       try {
         const info = await stat(target);
@@ -211,16 +348,16 @@
 
 <main>
   <header>
-    <h1>{fileName(currentPath)}{isDirty ? " •" : ""}</h1>
+    <h1>{fileName(activeTab?.path ?? null)}{#if activeTab?.isDirty}<span class="dirty-dot"> •</span>{/if}</h1>
     <div class="actions">
       <button onclick={newFile}>New</button>
       <button onclick={openFile}>Open File</button>
-      <button onclick={() => sidebarRef?.openDirectory()}>Open Folder</button>
+      <button onclick={() => { sidebarRef?.openDirectory(); showSidebar = true; }}>Open Folder</button>
       <button onclick={saveFile}>Save</button>
       <button onclick={saveAsFile}>Save As</button>
       <label>
         Lang
-        <select value={selectedLanguage} onchange={onLanguageChange}>
+        <select value={activeTab?.language ?? "ts"} onchange={onLanguageChange}>
           {#each languageOptions as lang}
             <option value={lang}>{lang}</option>
           {/each}
@@ -237,26 +374,36 @@
     </div>
   </header>
 
-  <section class="workspace" class:sidebar-hidden={!showSidebar}>
-    {#if showSidebar}
-      <FileSidebar
-        bind:this={sidebarRef}
-        onfileopen={openPath}
-        onstatus={(msg: string) => status = msg}
-      />
-    {/if}
+  <TabBar
+    {tabs}
+    {activeTabId}
+    onselect={switchToTab}
+    onclose={closeTab}
+  />
 
-    <CodeEditor
-      bind:this={editorRef}
-      {content}
-      language={selectedLanguage}
-      theme={selectedTheme}
-      {fontSize}
-      bind:isDirty
-      {showFind}
-      onchange={onEditorChange}
-      onclosefind={closeFind}
+  <section class="workspace" class:sidebar-hidden={!showSidebar}>
+    <FileSidebar
+      bind:this={sidebarRef}
+      onfileopen={openPath}
+      onstatus={(msg: string) => status = msg}
+      hidden={!showSidebar}
     />
+
+    {#if activeTab}
+      {#key activeTabId}
+        <CodeEditor
+          bind:this={editorRef}
+          content={activeTab.content}
+          language={activeTab.language}
+          theme={selectedTheme}
+          {fontSize}
+          bind:isDirty={editorIsDirty}
+          {showFind}
+          onchange={onEditorChange}
+          onclosefind={closeFind}
+        />
+      {/key}
+    {/if}
   </section>
 
   {#if showQuickOpen}
@@ -272,22 +419,22 @@
 
   <footer>
     <span>{status}</span>
-    <span>{currentPath ?? "No file selected"}</span>
+    <span>{activeTab?.path ?? "No file selected"}</span>
   </footer>
 </main>
 
 <style>
   :global(body) {
     margin: 0;
-    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-    background: #111827;
-    color: #f9fafb;
+    font-family: "SF Pro Text", "Helvetica Neue", system-ui, -apple-system, sans-serif;
+    background: #1a1a1a;
+    color: #e0ddd8;
   }
 
   main {
     height: 100vh;
     display: grid;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto auto 1fr auto;
   }
 
   header,
@@ -295,59 +442,70 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.75rem 1rem;
-    background: #1f2937;
-    border-bottom: 1px solid #374151;
+    padding: 0.5rem 1rem;
+    background: #222222;
+    border-bottom: 1px solid #2a2a2a;
     gap: 1rem;
   }
 
   footer {
-    border-top: 1px solid #374151;
+    border-top: 1px solid #2a2a2a;
     border-bottom: none;
-    font-size: 0.85rem;
-    color: #d1d5db;
+    font-size: 0.8rem;
+    color: #706b63;
+    padding: 0.4rem 1rem;
   }
 
   .actions {
     display: flex;
-    gap: 0.5rem;
+    gap: 0.35rem;
     align-items: center;
     flex-wrap: wrap;
   }
 
   button,
   select {
-    border: 1px solid #4b5563;
-    background: #374151;
-    color: #f9fafb;
-    border-radius: 8px;
-    padding: 0.35rem 0.7rem;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #8a8580;
+    border-radius: 4px;
+    padding: 0.3rem 0.6rem;
+    font-size: 0.8rem;
+    letter-spacing: 0.01em;
   }
 
   button {
     cursor: pointer;
+    transition: color 0.15s, background 0.15s;
   }
 
   button:hover {
-    background: #4b5563;
+    color: #d4a574;
+    background: #2a2a2a;
   }
 
   button:disabled {
-    opacity: 0.5;
+    opacity: 0.35;
     cursor: default;
   }
 
   label {
-    font-size: 0.85rem;
-    color: #d1d5db;
+    font-size: 0.8rem;
+    color: #706b63;
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 0.3rem;
+  }
+
+  select {
+    border: 1px solid #333;
+    background: #252525;
+    color: #8a8580;
   }
 
   .workspace {
     display: grid;
-    grid-template-columns: 280px 1fr;
+    grid-template-columns: 260px 1fr;
     min-height: 0;
   }
 
@@ -357,10 +515,16 @@
 
   h1 {
     margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
+    font-size: 0.85rem;
+    font-weight: 400;
+    letter-spacing: 0.02em;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    color: #a09a92;
+  }
+
+  .dirty-dot {
+    color: #c8956c;
   }
 </style>

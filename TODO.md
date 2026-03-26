@@ -11,7 +11,7 @@
 
 ## Important (you'll feel it within the first day)
 
-- [ ] **Multi-file tabs** — opening a new file loses the current one. Need tabs or a buffer list.
+- [x] **Multi-file tabs** — opening a new file loses the current one. Need tabs or a buffer list.
 - [ ] **Go to line (Cmd+G or Cmd+L)** — essential when reading stack traces.
 - [ ] **Auto-closing brackets/quotes** — type `(` get `()` with cursor in the middle.
 - [x] **Selection indentation (Tab/Shift+Tab)** — indent/dedent selected block.
@@ -20,7 +20,7 @@
 
 ## Quality of life (first week)
 
-- [ ] **Cmd+P quick file open** — fuzzy file finder across the project, way faster than sidebar browsing.
+- [x] **Cmd+P quick file open** — fuzzy file finder across the project, way faster than sidebar browsing.
 - [ ] **Minimap or scrollbar markers** — find match positions, current line indicator.
 - [ ] **Highlight current line** — subtle background on the active line.
 - [ ] **Remember state** — last opened folder, open files, cursor positions across sessions (persist to localStorage or a file).
