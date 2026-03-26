@@ -86,7 +86,65 @@
     scheduleHighlight();
   }
 
+  // Characters after which we add an extra indent level on Enter
+  const INDENT_AFTER = new Set(["{", "(", "[", ":", ">"]);
+
+  function handleEnter(event: KeyboardEvent) {
+    const ta = textareaEl!;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const val = ta.value;
+
+    // Find the current line
+    const lineStart = val.lastIndexOf("\n", start - 1) + 1;
+    const lineText = val.slice(lineStart, start);
+
+    // Match leading whitespace
+    const match = lineText.match(/^(\s*)/);
+    let indent = match ? match[1] : "";
+
+    // Check the last non-whitespace character before cursor
+    const trimmed = lineText.trimEnd();
+    const lastChar = trimmed[trimmed.length - 1];
+    if (lastChar && INDENT_AFTER.has(lastChar)) {
+      indent += "  ";
+    }
+
+    // Check if cursor is between brackets, e.g. {|}
+    const charAfter = val[end];
+    const isBetweenBrackets =
+      (lastChar === "{" && charAfter === "}") ||
+      (lastChar === "(" && charAfter === ")") ||
+      (lastChar === "[" && charAfter === "]");
+
+    if (isBetweenBrackets) {
+      // Insert newline + indent, then another newline + original indent, cursor on indented line
+      event.preventDefault();
+      const baseIndent = (match ? match[1] : "");
+      const insert = "\n" + indent + "\n" + baseIndent;
+      ta.value = val.slice(0, start) + insert + val.slice(end);
+      ta.selectionStart = ta.selectionEnd = start + 1 + indent.length;
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      return;
+    }
+
+    if (indent) {
+      event.preventDefault();
+      const insert = "\n" + indent;
+      ta.value = val.slice(0, start) + insert + val.slice(end);
+      ta.selectionStart = ta.selectionEnd = start + insert.length;
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      return;
+    }
+
+    // No indent needed — let the browser handle the plain Enter
+  }
+
   function onKeyDown(event: KeyboardEvent) {
+    if (event.key === "Enter") {
+      return handleEnter(event);
+    }
+
     if (event.key !== "Tab") return;
     event.preventDefault();
 
