@@ -168,6 +168,7 @@
       activeTab.isDirty = false;
       tabs = tabs;
       status = `Saved ${fileName(activeTab.path)}`;
+      sidebarRef?.refreshCurrentDir();
       return;
     }
     await saveAsFile();
