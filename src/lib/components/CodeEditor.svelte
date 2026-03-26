@@ -15,7 +15,7 @@
     onclosefind: () => void;
   }
 
-  let { content, language, theme, fontSize, isDirty = $bindable(), showFind, wordWrap, onchange, onclosefind }: Props = $props();
+  let { content, language, theme, fontSize, isDirty, showFind, wordWrap, onchange, onclosefind }: Props = $props();
 
   let highlightedHtml = $state('<pre class="shiki"><code></code></pre>');
   let highlighter: Highlighter | null = null;
@@ -225,7 +225,6 @@
   function onInput(event: Event) {
     const value = (event.target as HTMLTextAreaElement).value;
     onchange(value);
-    isDirty = true;
     inputGeneration++;
     highlightSync(); // synchronous — no debounce, no frame delay
   }

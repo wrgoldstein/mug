@@ -206,22 +206,11 @@
   function onEditorChange(value: string) {
     if (!activeTab) return;
     activeTab.content = value;
+    if (!activeTab.isDirty) {
+      activeTab.isDirty = true;
+      tabs = tabs; // trigger reactivity for dirty dot
+    }
   }
-
-  // Bind isDirty from CodeEditor back to active tab
-  let editorIsDirty = $state(false);
-  $effect(() => {
-    if (activeTab && editorIsDirty !== activeTab.isDirty) {
-      activeTab.isDirty = editorIsDirty;
-      tabs = tabs;
-    }
-  });
-  // Push active tab's isDirty to the editor binding
-  $effect(() => {
-    if (activeTab) {
-      editorIsDirty = activeTab.isDirty;
-    }
-  });
 
   let showModePicker = $state(false);
   let showDirPicker = $state(false);
@@ -470,7 +459,7 @@
           language={activeTab.language}
           theme={selectedTheme}
           {fontSize}
-          bind:isDirty={editorIsDirty}
+          isDirty={activeTab.isDirty}
           {showFind}
           {wordWrap}
           onchange={onEditorChange}
