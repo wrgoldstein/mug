@@ -410,6 +410,11 @@
           fetchGitBranch();
           invoke("register_directory", { dir: target });
         } else if (info.isFile) {
+          // Open the file's parent directory in the sidebar
+          const parentDir = target.substring(0, target.lastIndexOf("/")) || "/";
+          await sidebarRef?.openDirectoryPath(parentDir);
+          showSidebar = true;
+          invoke("register_directory", { dir: parentDir });
           await openPath(target);
           fetchGitBranch();
         }

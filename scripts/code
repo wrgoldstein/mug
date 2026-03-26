@@ -32,8 +32,8 @@ if [ -n "$1" ]; then
         continue
       fi
 
-      # Match: same directory (or target is a file inside it)
-      if [ "$dir" = "$TARGET" ] || [[ "$TARGET" == "$dir"/* ]]; then
+      # Match: target is the same directory as an existing instance
+      if [ -d "$TARGET" ] && [ "$dir" = "$TARGET" ]; then
         # Foreground the existing instance
         osascript -e "
           tell application \"System Events\"
