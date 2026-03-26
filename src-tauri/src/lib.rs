@@ -3,6 +3,27 @@ fn get_cli_args() -> Vec<String> {
     std::env::args().collect()
 }
 
+fn instance_dir() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    std::path::PathBuf::from(home).join(".mug").join("instances")
+}
+
+fn instance_file() -> std::path::PathBuf {
+    instance_dir().join(std::process::id().to_string())
+}
+
+#[tauri::command]
+fn register_directory(dir: String) {
+    let dir_path = instance_dir();
+    let _ = std::fs::create_dir_all(&dir_path);
+    let _ = std::fs::write(instance_file(), dir);
+}
+
+#[tauri::command]
+fn unregister_directory() {
+    let _ = std::fs::remove_file(instance_file());
+}
+
 #[tauri::command]
 fn fzf_files(dir: String, query: String) -> Vec<String> {
     // Use fd for fast file listing, pipe to fzf for fuzzy matching
@@ -123,7 +144,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![get_cli_args, get_git_branch, get_git_status, zoxide_query, fzf_files])
+        .invoke_handler(tauri::generate_handler![get_cli_args, get_git_branch, get_git_status, zoxide_query, fzf_files, register_directory, unregister_directory])
+        .on_window_event(|_window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                let _ = std::fs::remove_file(instance_file());
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

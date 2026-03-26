@@ -11,6 +11,7 @@
   import TabBar from "$lib/components/TabBar.svelte";
   import WelcomeScreen from "$lib/components/WelcomeScreen.svelte";
   import DirectoryPicker from "$lib/components/DirectoryPicker.svelte";
+  import ModePicker from "$lib/components/ModePicker.svelte";
 
   // ── Tab model ──────────────────────────────────────────────
   interface Tab {
@@ -77,7 +78,7 @@
     window.addEventListener("mouseup", onUp);
   }
 
-  const languageOptions: BundledLanguage[] = ["ts", "js", "python", "ruby", "elixir", "go", "rust", "svelte", "json", "yaml", "toml", "sql", "md", "html", "css", "bash", "plaintext"];
+  const languageOptions: BundledLanguage[] = ["ts", "js", "python", "ruby", "elixir", "go", "rust", "svelte", "json", "yaml", "toml", "sql", "markdown", "md", "html", "css", "bash", "plaintext"];
   const themeOptions: BundledTheme[] = ["github-dark", "github-light", "dracula", "nord"];
 
   // ── Tab helpers ────────────────────────────────────────────
@@ -230,6 +231,7 @@
     await sidebarRef?.openDirectoryPath(path);
     showSidebar = true;
     fetchGitBranch();
+    invoke("register_directory", { dir: path });
   }
   let modePickerType = $state<"language" | "theme">("language");
 
@@ -361,11 +363,16 @@
         return;
       }
 
-      if (event.key.toLowerCase() === "l" && event.shiftKey) {
-        // Cmd+Shift+L: open find bar prefilled with selection for replace-all
+      if (event.key.toLowerCase() === "l") {
         event.preventDefault();
-        showFind = true;
-        requestAnimationFrame(() => editorRef?.openFindBar());
+        if (event.shiftKey) {
+          // Cmd+Shift+L: open find bar prefilled with selection for replace-all
+          showFind = true;
+          requestAnimationFrame(() => editorRef?.openFindBar());
+        } else {
+          // Cmd+L: language picker
+          showModePicker = true;
+        }
         return;
       }
 
@@ -412,6 +419,7 @@
           await sidebarRef?.openDirectoryPath(target);
           showSidebar = true;
           fetchGitBranch();
+          invoke("register_directory", { dir: target });
         } else if (info.isFile) {
           await openPath(target);
           fetchGitBranch();
@@ -490,6 +498,22 @@
     {/if}
   {/if}
 
+  {#if showModePicker && activeTab}
+    <ModePicker
+      languages={languageOptions}
+      current={activeTab.language}
+      onselect={(lang) => {
+        if (activeTab) {
+          activeTab.language = lang;
+          tabs = tabs;
+          status = `Language: ${lang}`;
+        }
+        showModePicker = false;
+      }}
+      onclose={() => showModePicker = false}
+    />
+  {/if}
+
   <footer>
     <span class="footer-left">
       {#if sidebarRef?.getRootDir()}
@@ -500,7 +524,7 @@
       {/if}
     </span>
     <span class="footer-right">
-      <span class="footer-lang">{activeTab?.language ?? ""}</span>
+      <button class="footer-lang" onclick={() => showModePicker = true}>{activeTab?.language ?? ""}</button>
       <span>{activeTab?.path ? shortPath(relativePath(activeTab.path, sidebarRef?.getRootDir() ?? null)) : ""}</span>
     </span>
   </footer>
@@ -599,5 +623,15 @@
   .footer-lang {
     color: #c8956c;
     letter-spacing: 0.02em;
+    cursor: pointer;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 0.8rem;
+    padding: 0;
+  }
+
+  .footer-lang:hover {
+    text-decoration: underline;
   }
 </style>

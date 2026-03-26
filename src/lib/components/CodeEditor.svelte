@@ -135,7 +135,7 @@
 
   function enhanceMarkdown(html: string): string {
     // Process line by line to add classes for markdown elements
-    return html.replace(/<span class="line">(.*?)<\/span>/g, (match, inner) => {
+    return html.replace(/<span class="line">(.*)<\/span>/g, (match, inner) => {
       const text = inner.replace(/<[^>]*>/g, ""); // strip tags to get raw text
 
       // Headers: lines starting with #
@@ -466,28 +466,13 @@
     font-weight: 700 !important;
   }
 
-  .code-layer :global(.md-h1) {
-    font-size: 1.5em;
-    line-height: 1.45;
-  }
-
   .code-layer :global(.md-h1 span) {
     color: #c8956c !important;
-  }
-
-  .code-layer :global(.md-h2) {
-    font-size: 1.25em;
-    line-height: 1.45;
   }
 
   .code-layer :global(.md-h2 span) {
     color: #c8956c !important;
     opacity: 0.85;
-  }
-
-  .code-layer :global(.md-h3) {
-    font-size: 1.1em;
-    line-height: 1.45;
   }
 
   .code-layer :global(.md-h3 span) {

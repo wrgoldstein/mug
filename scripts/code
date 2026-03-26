@@ -7,6 +7,7 @@
 #   mug                   Open with no args
 
 APP="/Applications/Mug.app"
+INSTANCE_DIR="$HOME/.mug/instances"
 
 if [ ! -d "$APP" ]; then
   echo "Mug not found at $APP"
@@ -17,7 +18,38 @@ fi
 if [ -n "$1" ]; then
   # Resolve to absolute path
   TARGET="$(cd "$(dirname "$1")" 2>/dev/null && pwd)/$(basename "$1")"
-  open -a "$APP" --args "$TARGET"
+
+  # Check if an existing instance already has this directory open
+  if [ -d "$INSTANCE_DIR" ]; then
+    for f in "$INSTANCE_DIR"/*; do
+      [ -f "$f" ] || continue
+      pid="$(basename "$f")"
+      dir="$(cat "$f" 2>/dev/null)"
+
+      # Clean up stale instance files
+      if ! kill -0 "$pid" 2>/dev/null; then
+        rm -f "$f"
+        continue
+      fi
+
+      # Match: same directory (or target is a file inside it)
+      if [ "$dir" = "$TARGET" ] || [[ "$TARGET" == "$dir"/* ]]; then
+        # Foreground the existing instance
+        osascript -e "
+          tell application \"System Events\"
+            set procs to every process whose unix id is $pid
+            if (count of procs) > 0 then
+              set frontmost of item 1 of procs to true
+            end if
+          end tell
+        " 2>/dev/null
+        echo "Foregrounded existing Mug (pid $pid) for $dir"
+        exit 0
+      fi
+    done
+  fi
+
+  open -n -a "$APP" --args "$TARGET"
 else
-  open -a "$APP"
+  open -n -a "$APP"
 fi
