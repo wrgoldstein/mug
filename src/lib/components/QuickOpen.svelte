@@ -225,9 +225,9 @@
   }
 
   .quick-open-list {
-    flex: 1 1 0;
     overflow-y: auto;
     padding: 0.25rem;
+    max-height: calc(60vh - 3rem);
   }
 
   .quick-open-item {
