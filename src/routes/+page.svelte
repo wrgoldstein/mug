@@ -34,6 +34,119 @@
   const FONT_SIZE_STEP = 1;
   let fontSize = $state(15);
 
+  // Find state
+  let showFind = $state(false);
+  let findQuery = $state("");
+  let findCaseSensitive = $state(false);
+  let findMatches = $state<{ start: number; end: number }[]>([]);
+  let findCurrentIdx = $state(-1);
+  let findInputEl = $state<HTMLInputElement | null>(null);
+
+  function computeMatches() {
+    if (!findQuery) {
+      findMatches = [];
+      findCurrentIdx = -1;
+      return;
+    }
+    const src = findCaseSensitive ? content : content.toLowerCase();
+    const q = findCaseSensitive ? findQuery : findQuery.toLowerCase();
+    const results: { start: number; end: number }[] = [];
+    let pos = 0;
+    while (pos <= src.length - q.length) {
+      const idx = src.indexOf(q, pos);
+      if (idx === -1) break;
+      results.push({ start: idx, end: idx + q.length });
+      pos = idx + 1;
+    }
+    findMatches = results;
+    if (results.length === 0) {
+      findCurrentIdx = -1;
+    } else if (findCurrentIdx < 0 || findCurrentIdx >= results.length) {
+      findCurrentIdx = 0;
+    }
+  }
+
+  function selectMatch(idx: number) {
+    if (!textareaEl || idx < 0 || idx >= findMatches.length) return;
+    const m = findMatches[idx];
+    textareaEl.focus();
+    textareaEl.setSelectionRange(m.start, m.end);
+
+    // Scroll the match into view by computing line/col
+    const before = content.slice(0, m.start);
+    const line = before.split("\n").length - 1;
+    const lineHeight = textareaEl.scrollHeight / (content.split("\n").length || 1);
+    const targetTop = line * lineHeight - textareaEl.clientHeight / 3;
+    textareaEl.scrollTop = Math.max(0, targetTop);
+    syncScroll();
+  }
+
+  function findNext() {
+    if (findMatches.length === 0) return;
+    findCurrentIdx = (findCurrentIdx + 1) % findMatches.length;
+    selectMatch(findCurrentIdx);
+  }
+
+  function findPrev() {
+    if (findMatches.length === 0) return;
+    findCurrentIdx = (findCurrentIdx - 1 + findMatches.length) % findMatches.length;
+    selectMatch(findCurrentIdx);
+  }
+
+  function openFind() {
+    showFind = true;
+    // If there's a selection, prefill the query
+    if (textareaEl) {
+      const sel = content.slice(textareaEl.selectionStart, textareaEl.selectionEnd);
+      if (sel && !sel.includes("\n")) findQuery = sel;
+    }
+    computeMatches();
+    // Focus input after DOM update
+    requestAnimationFrame(() => findInputEl?.focus());
+  }
+
+  function closeFind() {
+    showFind = false;
+    findMatches = [];
+    findCurrentIdx = -1;
+    textareaEl?.focus();
+  }
+
+  function onFindInput(event: Event) {
+    findQuery = (event.target as HTMLInputElement).value;
+    computeMatches();
+    if (findMatches.length > 0) {
+      // Jump to nearest match from current cursor
+      const cursor = textareaEl?.selectionStart ?? 0;
+      let nearest = 0;
+      for (let i = 0; i < findMatches.length; i++) {
+        if (findMatches[i].start >= cursor) { nearest = i; break; }
+        nearest = i;
+      }
+      findCurrentIdx = nearest;
+      selectMatch(findCurrentIdx);
+    }
+  }
+
+  function onFindKeyDown(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeFind();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (event.shiftKey) findPrev();
+      else findNext();
+    }
+  }
+
+  function toggleCaseSensitive() {
+    findCaseSensitive = !findCaseSensitive;
+    computeMatches();
+    if (findMatches.length > 0) selectMatch(findCurrentIdx);
+  }
+
   const languageOptions: BundledLanguage[] = ["ts", "js", "python", "svelte", "json", "md", "html", "css", "rust", "bash"];
   const themeOptions: BundledTheme[] = ["github-dark", "github-light", "dracula", "nord"];
 
@@ -303,6 +416,21 @@
         newFile();
       }
 
+      if (event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        openFind();
+        return;
+      }
+
+      if (event.key.toLowerCase() === "g") {
+        event.preventDefault();
+        if (showFind) {
+          if (event.shiftKey) findPrev();
+          else findNext();
+        }
+        return;
+      }
+
       if (event.key === "=" || event.key === "+") {
         event.preventDefault();
         fontSize = Math.min(FONT_SIZE_MAX, fontSize + FONT_SIZE_STEP);
@@ -391,6 +519,33 @@
     </aside>
 
     <section class="editor-shell" style="--editor-font-size: {fontSize}px">
+      {#if showFind}
+        <div class="find-bar">
+          <input
+            bind:this={findInputEl}
+            type="text"
+            value={findQuery}
+            oninput={onFindInput}
+            onkeydown={onFindKeyDown}
+            placeholder="Find…"
+            class="find-input"
+          />
+          <button
+            class="find-case-btn"
+            class:active={findCaseSensitive}
+            onclick={toggleCaseSensitive}
+            title="Match case"
+          >Aa</button>
+          <button onclick={findPrev} disabled={findMatches.length === 0} title="Previous (Shift+Enter)">▲</button>
+          <button onclick={findNext} disabled={findMatches.length === 0} title="Next (Enter)">▼</button>
+          <span class="find-count">
+            {#if findQuery}
+              {findMatches.length === 0 ? "No results" : `${findCurrentIdx + 1} of ${findMatches.length}`}
+            {/if}
+          </span>
+          <button onclick={closeFind} title="Close (Esc)">✕</button>
+        </div>
+      {/if}
       <div class="code-layer" bind:this={codeLayerEl} aria-hidden="true">
         {@html highlightedHtml}
       </div>
@@ -555,6 +710,61 @@
     min-height: 0;
     overflow: hidden;
     background: #0f172a;
+  }
+
+  .find-bar {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0.6rem;
+    background: #1f2937;
+    border: 1px solid #374151;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .find-input {
+    width: 220px;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid #4b5563;
+    border-radius: 4px;
+    background: #111827;
+    color: #f9fafb;
+    font-size: 0.85rem;
+    outline: none;
+  }
+
+  .find-input:focus {
+    border-color: #3b82f6;
+  }
+
+  .find-count {
+    font-size: 0.78rem;
+    color: #9ca3af;
+    min-width: 70px;
+    text-align: center;
+  }
+
+  .find-bar button {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.78rem;
+    border-radius: 4px;
+  }
+
+  .find-case-btn {
+    font-weight: 600;
+    opacity: 0.5;
+  }
+
+  .find-case-btn.active {
+    opacity: 1;
+    background: #3b82f6;
+    border-color: #3b82f6;
   }
 
   .code-layer,
