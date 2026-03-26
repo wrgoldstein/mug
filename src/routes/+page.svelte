@@ -103,6 +103,12 @@
 
   onMount(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && showFind) {
+        event.preventDefault();
+        closeFind();
+        return;
+      }
+
       const mod = event.metaKey || event.ctrlKey;
       if (!mod) return;
 
