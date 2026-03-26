@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+
+APP_NAME="tauri-svelte-editor"
+BUNDLE="src-tauri/target/release/bundle/macos/$APP_NAME.app"
+DEST="/Applications/$APP_NAME.app"
+
+cd "$(dirname "$0")/.."
+
+echo "==> Building release…"
+pnpm tauri build
+
+echo "==> Closing running instances…"
+pkill -x "$APP_NAME" 2>/dev/null && sleep 1 || true
+
+echo "==> Removing old version…"
+rm -rf "$DEST"
+
+echo "==> Installing to /Applications…"
+cp -r "$BUNDLE" "$DEST"
+
+echo "==> Updating Spotlight index…"
+mdimport "$DEST"
+
+echo "==> Resetting Launch Services (icon cache)…"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST"
+
+echo "✓ Deployed $APP_NAME to $DEST"
