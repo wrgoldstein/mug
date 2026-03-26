@@ -25,4 +25,9 @@ mdimport "$DEST"
 echo "==> Resetting Launch Services (icon cache)…"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST"
 
+echo "==> Setting up 'code' CLI alias…"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ln -sf "$SCRIPT_DIR/code" /usr/local/bin/code
+
 echo "✓ Deployed $APP_NAME to $DEST"
+echo "  Run 'code .' from anywhere to open a project"

@@ -1,17 +1,17 @@
 #!/bin/bash
 # CLI launcher for tauri-svelte-editor
-# Usage: edit [path]
-#   edit .                 Open current directory
-#   edit /path/to/dir      Open a directory
-#   edit /path/to/file.rs  Open a file
-#   edit                   Open with no args
+# Usage: code [path]
+#   code .                 Open current directory
+#   code /path/to/dir      Open a directory
+#   code /path/to/file.rs  Open a file
+#   code                   Open with no args
 
 APP="/Applications/tauri-svelte-editor.app"
 BIN="$APP/Contents/MacOS/tauri-svelte-editor"
 
 if [ ! -x "$BIN" ]; then
   echo "tauri-svelte-editor not found at $APP"
-  echo "Build and install with: cp -r src-tauri/target/release/bundle/macos/tauri-svelte-editor.app /Applications/"
+  echo "Run ./scripts/deploy to build and install."
   exit 1
 fi
 
