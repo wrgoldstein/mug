@@ -543,9 +543,21 @@
     margin: 0;
     border: none;
     outline: none;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.95rem;
     line-height: 1.45;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-weight: normal;
+    font-style: normal;
+    font-variant: normal;
+    font-variant-ligatures: none;
+    font-feature-settings: normal;
+    font-stretch: normal;
+    letter-spacing: 0px;
+    word-spacing: 0px;
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-text-size-adjust: none;
     tab-size: 2;
     overflow: auto;
     white-space: pre;
@@ -560,6 +572,33 @@
     padding: 0 !important;
     min-height: 100%;
     background: transparent !important;
+    font: inherit;
+    letter-spacing: inherit;
+    word-spacing: inherit;
+    text-rendering: inherit;
+    -webkit-font-smoothing: inherit;
+    font-variant-ligatures: inherit;
+    font-feature-settings: inherit;
+  }
+
+  .code-layer :global(code) {
+    font: inherit;
+    letter-spacing: inherit;
+    word-spacing: inherit;
+    text-rendering: inherit;
+    -webkit-font-smoothing: inherit;
+    font-variant-ligatures: inherit;
+    font-feature-settings: inherit;
+  }
+
+  .code-layer :global(span) {
+    font: inherit;
+    letter-spacing: inherit;
+    word-spacing: inherit;
+    text-rendering: inherit;
+    -webkit-font-smoothing: inherit;
+    font-variant-ligatures: inherit;
+    font-feature-settings: inherit;
   }
 
   textarea {
