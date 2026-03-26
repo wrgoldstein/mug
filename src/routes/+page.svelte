@@ -6,6 +6,7 @@
   import { fileName, detectLanguage } from "$lib/utils/path";
   import FileSidebar from "$lib/components/FileSidebar.svelte";
   import CodeEditor from "$lib/components/CodeEditor.svelte";
+  import QuickOpen from "$lib/components/QuickOpen.svelte";
 
   let content = $state("");
   let currentPath = $state<string | null>(null);
@@ -21,6 +22,7 @@
   let fontSize = $state(15);
 
   let showFind = $state(false);
+  let showQuickOpen = $state(false);
 
   let sidebarRef: FileSidebar | null = $state(null);
   let editorRef: CodeEditor | null = $state(null);
@@ -103,10 +105,17 @@
 
   onMount(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && showFind) {
-        event.preventDefault();
-        closeFind();
-        return;
+      if (event.key === "Escape") {
+        if (showQuickOpen) {
+          event.preventDefault();
+          showQuickOpen = false;
+          return;
+        }
+        if (showFind) {
+          event.preventDefault();
+          closeFind();
+          return;
+        }
       }
 
       const mod = event.metaKey || event.ctrlKey;
@@ -127,6 +136,14 @@
       if (event.key.toLowerCase() === "n") {
         event.preventDefault();
         newFile();
+      }
+
+      if (event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        const root = sidebarRef?.getRootDir();
+        if (root) showQuickOpen = true;
+        else status = "Open a folder first";
+        return;
       }
 
       if (event.key.toLowerCase() === "f") {
@@ -215,6 +232,17 @@
       onclosefind={closeFind}
     />
   </section>
+
+  {#if showQuickOpen}
+    {@const root = sidebarRef?.getRootDir()}
+    {#if root}
+      <QuickOpen
+        rootDir={root}
+        onselect={(path) => { showQuickOpen = false; openPath(path); }}
+        onclose={() => showQuickOpen = false}
+      />
+    {/if}
+  {/if}
 
   <footer>
     <span>{status}</span>

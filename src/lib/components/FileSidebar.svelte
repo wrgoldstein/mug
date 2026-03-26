@@ -18,6 +18,10 @@
   };
 
   let rootDir = $state<string | null>(null);
+
+  export function getRootDir(): string | null {
+    return rootDir;
+  }
   let browseDir = $state<string | null>(null);
   let sidebarEntries = $state<SidebarEntry[]>([]);
 

@@ -4,7 +4,7 @@
 
 - [x] **Undo/Redo (Cmd+Z / Cmd+Shift+Z)** — native textarea undo/redo works well. Stack resets on file change, which is fine.
 - [x] **Tab key inserts indentation** — Tab inserts 2 spaces. Tab/Shift+Tab indent/dedent selected lines.
-- [ ] **Auto-indent on Enter** — match the indentation of the current line when pressing Enter.
+- [x] **Auto-indent on Enter** — matches current indent, extra indent after `{ ( [ : >`, bracket expansion.
 - [ ] **Find and Replace (Cmd+H)** — find alone won't cut it for long. Replace + Replace All.
 - [ ] **Line numbers** — hard to navigate code without them, especially for error messages that reference line numbers.
 - [ ] **Unsaved changes warning** — prompt before opening a new file or closing the window when dirty.
