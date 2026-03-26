@@ -24,6 +24,7 @@
 
   let showFind = $state(false);
   let showQuickOpen = $state(false);
+  let showSidebar = $state(true);
 
   let sidebarRef: FileSidebar | null = $state(null);
   let editorRef: CodeEditor | null = $state(null);
@@ -139,6 +140,11 @@
         newFile();
       }
 
+      if (event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        showSidebar = !showSidebar;
+      }
+
       if (event.key.toLowerCase() === "k") {
         event.preventDefault();
         const root = sidebarRef?.getRootDir();
@@ -231,12 +237,14 @@
     </div>
   </header>
 
-  <section class="workspace">
-    <FileSidebar
-      bind:this={sidebarRef}
-      onfileopen={openPath}
-      onstatus={(msg) => status = msg}
-    />
+  <section class="workspace" class:sidebar-hidden={!showSidebar}>
+    {#if showSidebar}
+      <FileSidebar
+        bind:this={sidebarRef}
+        onfileopen={openPath}
+        onstatus={(msg: string) => status = msg}
+      />
+    {/if}
 
     <CodeEditor
       bind:this={editorRef}
@@ -341,6 +349,10 @@
     display: grid;
     grid-template-columns: 280px 1fr;
     min-height: 0;
+  }
+
+  .workspace.sidebar-hidden {
+    grid-template-columns: 1fr;
   }
 
   h1 {
