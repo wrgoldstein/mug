@@ -15,8 +15,8 @@
 - [ ] **Go to line (Cmd+G or Cmd+L)** — essential when reading stack traces.
 - [ ] **Auto-closing brackets/quotes** — type `(` get `()` with cursor in the middle.
 - [x] **Selection indentation (Tab/Shift+Tab)** — indent/dedent selected block.
-- [ ] **Cmd+D / Cmd+Shift+L** — select next occurrence / select all occurrences. Huge for quick renames.
-- [ ] **Word wrap toggle** — some files are unreadable without it.
+- [x] **Cmd+D / Cmd+Shift+L** — select next occurrence / select all occurrences. Huge for quick renames.
+- [x] **Word wrap toggle** — some files are unreadable without it.
 
 ## Quality of life (first week)
 

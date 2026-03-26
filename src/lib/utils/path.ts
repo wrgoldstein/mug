@@ -61,6 +61,11 @@ export function detectLanguage(path: string): BundledLanguage {
       return "rust";
     case "rb":
       return "ruby";
+    case "ex":
+    case "exs":
+    case "heex":
+    case "eex":
+      return "elixir";
     case "yml":
     case "yaml":
       return "yaml";

@@ -51,6 +51,7 @@
 
   let showFind = $state(false);
   let showQuickOpen = $state(false);
+  let wordWrap = $state(false);
   let showSidebar = $state(false);
 
   let sidebarRef: FileSidebar | null = $state(null);
@@ -76,7 +77,7 @@
     window.addEventListener("mouseup", onUp);
   }
 
-  const languageOptions: BundledLanguage[] = ["ts", "js", "python", "ruby", "go", "rust", "svelte", "json", "yaml", "toml", "sql", "md", "html", "css", "bash", "plaintext"];
+  const languageOptions: BundledLanguage[] = ["ts", "js", "python", "ruby", "elixir", "go", "rust", "svelte", "json", "yaml", "toml", "sql", "md", "html", "css", "bash", "plaintext"];
   const themeOptions: BundledTheme[] = ["github-dark", "github-light", "dracula", "nord"];
 
   // ── Tab helpers ────────────────────────────────────────────
@@ -279,6 +280,14 @@
         }
       }
 
+      // Option+Z: toggle word wrap
+      if (event.altKey && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        wordWrap = !wordWrap;
+        status = wordWrap ? "Word wrap: on" : "Word wrap: off";
+        return;
+      }
+
       const mod = event.metaKey || event.ctrlKey;
       if (!mod) return;
 
@@ -303,7 +312,19 @@
 
       if (event.key.toLowerCase() === "w") {
         event.preventDefault();
-        if (activeTabId) closeTab(activeTabId);
+        if (event.shiftKey) {
+          wordWrap = !wordWrap;
+          status = wordWrap ? "Word wrap: on" : "Word wrap: off";
+        } else {
+          if (activeTabId) closeTab(activeTabId);
+        }
+      }
+
+      if (event.key.toLowerCase() === "r" && event.shiftKey) {
+        event.preventDefault();
+        sidebarRef?.refreshCurrentDir();
+        status = "Refreshed";
+        return;
       }
 
       if (event.key.toLowerCase() === "b") {
@@ -331,6 +352,20 @@
           if (event.shiftKey) editorRef?.findPrev();
           else editorRef?.findNext();
         }
+        return;
+      }
+
+      if (event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        editorRef?.selectNextOccurrence();
+        return;
+      }
+
+      if (event.key.toLowerCase() === "l" && event.shiftKey) {
+        // Cmd+Shift+L: open find bar prefilled with selection for replace-all
+        event.preventDefault();
+        showFind = true;
+        requestAnimationFrame(() => editorRef?.openFindBar());
         return;
       }
 
@@ -429,6 +464,7 @@
           {fontSize}
           bind:isDirty={editorIsDirty}
           {showFind}
+          {wordWrap}
           onchange={onEditorChange}
           onclosefind={closeFind}
         />

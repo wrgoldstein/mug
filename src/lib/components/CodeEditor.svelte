@@ -10,11 +10,12 @@
     fontSize: number;
     isDirty: boolean;
     showFind: boolean;
+    wordWrap: boolean;
     onchange: (content: string) => void;
     onclosefind: () => void;
   }
 
-  let { content, language, theme, fontSize, isDirty = $bindable(), showFind, onchange, onclosefind }: Props = $props();
+  let { content, language, theme, fontSize, isDirty = $bindable(), showFind, wordWrap, onchange, onclosefind }: Props = $props();
 
   let highlightedHtml = $state('<pre class="shiki"><code></code></pre>');
   let highlighter: Highlighter | null = null;
@@ -54,6 +55,73 @@
     };
   }
 
+  /**
+   * Cmd+D: If nothing selected, select the word under cursor.
+   * If text is selected, find and select the next occurrence of it,
+   * replacing the selection to extend to cover both.
+   * (Textarea only supports one selection, so we replace the selected text
+   * with all occurrences replaced.)
+   */
+  export function selectNextOccurrence() {
+    const ta = textareaEl;
+    if (!ta) return;
+
+    let start = ta.selectionStart;
+    let end = ta.selectionEnd;
+    const val = ta.value;
+
+    // Nothing selected — select the word under cursor
+    if (start === end) {
+      const wordChars = /[\w$]/;
+      let wStart = start;
+      let wEnd = start;
+      while (wStart > 0 && wordChars.test(val[wStart - 1])) wStart--;
+      while (wEnd < val.length && wordChars.test(val[wEnd])) wEnd++;
+      if (wStart < wEnd) {
+        ta.selectionStart = wStart;
+        ta.selectionEnd = wEnd;
+      }
+      return;
+    }
+
+    // Text is selected — find the next occurrence after current selection
+    const selected = val.slice(start, end);
+    const searchFrom = end;
+    let nextIdx = val.indexOf(selected, searchFrom);
+    if (nextIdx === -1) {
+      // Wrap around
+      nextIdx = val.indexOf(selected);
+    }
+    if (nextIdx !== -1 && nextIdx !== start) {
+      ta.selectionStart = nextIdx;
+      ta.selectionEnd = nextIdx + selected.length;
+      // Scroll to the new selection
+      ta.blur();
+      ta.focus();
+    }
+  }
+
+  /**
+   * Cmd+Shift+L: Select all occurrences of the current selection and replace them.
+   * Since textarea doesn't support multi-cursor, we open find-and-replace prefilled.
+   * As a practical alternative: select all text matching current word/selection.
+   */
+  export function replaceAllOccurrences(replaceWith: string) {
+    const ta = textareaEl;
+    if (!ta) return;
+
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    if (start === end) return;
+
+    const selected = ta.value.slice(start, end);
+    const newVal = ta.value.replaceAll(selected, replaceWith);
+    if (newVal !== ta.value) {
+      ta.value = newVal;
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  }
+
   export function restoreState(scroll: { scrollTop: number; scrollLeft: number }, cursor: { selectionStart: number; selectionEnd: number }) {
     requestAnimationFrame(() => {
       if (!textareaEl) return;
@@ -62,6 +130,41 @@
       textareaEl.scrollTop = scroll.scrollTop;
       textareaEl.scrollLeft = scroll.scrollLeft;
       syncScroll();
+    });
+  }
+
+  function enhanceMarkdown(html: string): string {
+    // Process line by line to add classes for markdown elements
+    return html.replace(/<span class="line">(.*?)<\/span>/g, (match, inner) => {
+      const text = inner.replace(/<[^>]*>/g, ""); // strip tags to get raw text
+
+      // Headers: lines starting with #
+      if (/^#{1,6}\s/.test(text)) {
+        const level = text.match(/^(#+)/)?.[1].length ?? 1;
+        return `<span class="line md-h md-h${level}">${inner}</span>`;
+      }
+
+      // Horizontal rules
+      if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(text)) {
+        return `<span class="line md-hr">${inner}</span>`;
+      }
+
+      // List items
+      if (/^(\s*[-*+]|\s*\d+\.)\s/.test(text)) {
+        return `<span class="line md-list">${inner}</span>`;
+      }
+
+      // Blockquotes
+      if (/^\s*>/.test(text)) {
+        return `<span class="line md-quote">${inner}</span>`;
+      }
+
+      // Frontmatter delimiters
+      if (/^---\s*$/.test(text)) {
+        return `<span class="line md-frontmatter">${inner}</span>`;
+      }
+
+      return match;
     });
   }
 
@@ -83,10 +186,17 @@
     await highlighter.loadLanguage(language);
     await highlighter.loadTheme(theme);
 
-    highlightedHtml = highlighter.codeToHtml(content || " ", {
+    let html = highlighter.codeToHtml(content || " ", {
       lang: language,
       theme: theme
     });
+
+    // Enhance markdown rendering
+    if (language === "md" || language === "markdown") {
+      html = enhanceMarkdown(html);
+    }
+
+    highlightedHtml = html;
 
     syncScroll();
   }
@@ -253,7 +363,7 @@
   });
 </script>
 
-<section class="editor-shell" style="--editor-font-size: {fontSize}px">
+<section class="editor-shell" class:word-wrap={wordWrap} style="--editor-font-size: {fontSize}px">
   {#if showFind}
     <FindBar
       bind:this={findBarRef}
@@ -349,6 +459,65 @@
     -webkit-font-smoothing: inherit;
     font-variant-ligatures: inherit;
     font-feature-settings: inherit;
+  }
+
+  /* Markdown enhancements */
+  .code-layer :global(.md-h) {
+    font-weight: 700 !important;
+  }
+
+  .code-layer :global(.md-h1) {
+    font-size: 1.5em;
+    line-height: 1.45;
+  }
+
+  .code-layer :global(.md-h1 span) {
+    color: #c8956c !important;
+  }
+
+  .code-layer :global(.md-h2) {
+    font-size: 1.25em;
+    line-height: 1.45;
+  }
+
+  .code-layer :global(.md-h2 span) {
+    color: #c8956c !important;
+    opacity: 0.85;
+  }
+
+  .code-layer :global(.md-h3) {
+    font-size: 1.1em;
+    line-height: 1.45;
+  }
+
+  .code-layer :global(.md-h3 span) {
+    color: #c8956c !important;
+    opacity: 0.7;
+  }
+
+  .code-layer :global(.md-quote) {
+    border-left: 2px solid #c8956c40;
+    padding-left: 0.75rem;
+    margin-left: -0.75rem;
+  }
+
+  .code-layer :global(.md-quote span) {
+    opacity: 0.7;
+    font-style: italic;
+  }
+
+  .code-layer :global(.md-hr) {
+    opacity: 0.3;
+  }
+
+  .code-layer :global(.md-frontmatter) {
+    opacity: 0.35;
+  }
+
+  .word-wrap .code-layer,
+  .word-wrap textarea {
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   textarea {

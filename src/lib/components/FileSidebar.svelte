@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { readDir } from "@tauri-apps/plugin-fs";
   import { invoke } from "@tauri-apps/api/core";
@@ -203,6 +204,16 @@
 
     flatRows = rows;
   }
+
+  // Poll for filesystem changes every 5s when focused
+  onMount(() => {
+    const interval = setInterval(() => {
+      if (document.hasFocus() && rootNode) {
+        refreshCurrentDir();
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  });
 </script>
 
 <aside class="sidebar" class:hidden>
