@@ -30,6 +30,8 @@
     path: string | null;
     content: string;
     isDirty: boolean;
+    externalModified: boolean;
+    diskContent: string | null;
     language: BundledLanguage;
     scroll: { scrollTop: number; scrollLeft: number };
     cursor: { selectionStart: number; selectionEnd: number };
@@ -41,6 +43,8 @@
       path,
       content,
       isDirty: false,
+      externalModified: false,
+      diskContent: path ? content : null,
       language: language ?? (path ? detectLanguage(path) : "ts"),
       scroll: { scrollTop: 0, scrollLeft: 0 },
       cursor: { selectionStart: 0, selectionEnd: 0 },
@@ -89,7 +93,7 @@
     window.addEventListener("mouseup", onUp);
   }
 
-  const languageOptions: BundledLanguage[] = ["ts", "js", "python", "ruby", "elixir", "go", "rust", "svelte", "json", "yaml", "toml", "sql", "markdown", "md", "html", "css", "bash", "plaintext"];
+  const languageOptions: BundledLanguage[] = ["ts", "js", "python", "ruby", "elixir", "go", "rust", "svelte", "json", "yaml", "toml", "sql", "markdown", "md", "html", "css", "bash", "log"];
   const themeOptions: BundledTheme[] = ["github-dark", "github-light", "dracula", "nord"];
 
   // ── Tab helpers ────────────────────────────────────────────
@@ -179,6 +183,8 @@
     if (activeTab.path) {
       await writeTextFile(activeTab.path, activeTab.content);
       activeTab.isDirty = false;
+      activeTab.externalModified = false;
+      activeTab.diskContent = activeTab.content;
       tabs = tabs;
       status = `Saved ${fileName(activeTab.path)}`;
       sidebarRef?.refreshCurrentDir();
@@ -199,6 +205,8 @@
     activeTab.path = selected;
     activeTab.language = detectLanguage(selected);
     activeTab.isDirty = false;
+    activeTab.externalModified = false;
+    activeTab.diskContent = activeTab.content;
     tabs = tabs;
     status = `Saved ${fileName(selected)}`;
     sidebarRef?.refreshCurrentDir();
@@ -211,6 +219,30 @@
     });
     if (!selected || Array.isArray(selected)) return;
     await openPath(selected);
+  }
+
+  async function reloadActiveFileFromDisk() {
+    if (!activeTab || !activeTab.path) {
+      status = "No file to reload";
+      return;
+    }
+
+    if (activeTab.isDirty) {
+      const ok = confirm(`Discard unsaved changes and reload \"${fileName(activeTab.path)}\" from disk?`);
+      if (!ok) return;
+    }
+
+    try {
+      const diskContent = await readTextFile(activeTab.path);
+      activeTab.content = diskContent;
+      activeTab.diskContent = diskContent;
+      activeTab.externalModified = false;
+      activeTab.isDirty = false;
+      tabs = tabs;
+      status = `Reloaded ${fileName(activeTab.path)}`;
+    } catch {
+      status = `Could not reload ${fileName(activeTab.path)}`;
+    }
   }
 
   // ── Editor callbacks ───────────────────────────────────────
@@ -254,6 +286,47 @@
 
   function closeFind() {
     showFind = false;
+  }
+
+  let checkingExternalChanges = false;
+
+  async function checkExternalChanges() {
+    if (checkingExternalChanges || tabs.length === 0) return;
+    checkingExternalChanges = true;
+
+    let changedAny = false;
+    let changedActive = false;
+
+    try {
+      for (const tab of tabs) {
+        if (!tab.path || tab.diskContent === null) continue;
+
+        try {
+          const diskContent = await readTextFile(tab.path);
+          if (diskContent !== tab.diskContent) {
+            tab.diskContent = diskContent;
+            tab.externalModified = true;
+            changedAny = true;
+            if (tab.id === activeTabId) changedActive = true;
+          }
+        } catch {
+          if (!tab.externalModified) {
+            tab.externalModified = true;
+            changedAny = true;
+            if (tab.id === activeTabId) changedActive = true;
+          }
+        }
+      }
+
+      if (changedAny) {
+        tabs = tabs;
+        if (changedActive && activeTab?.path) {
+          status = `${fileName(activeTab.path)} changed on disk`;
+        }
+      }
+    } finally {
+      checkingExternalChanges = false;
+    }
   }
 
   // ── Keyboard shortcuts ─────────────────────────────────────
@@ -322,10 +395,14 @@
         }
       }
 
-      if (event.key.toLowerCase() === "r" && event.shiftKey) {
+      if (event.key.toLowerCase() === "r") {
         event.preventDefault();
-        sidebarRef?.refreshCurrentDir();
-        status = "Refreshed";
+        if (event.shiftKey) {
+          sidebarRef?.refreshCurrentDir();
+          status = "Refreshed";
+        } else {
+          await reloadActiveFileFromDisk();
+        }
         return;
       }
 
@@ -366,9 +443,8 @@
       if (event.key.toLowerCase() === "l") {
         event.preventDefault();
         if (event.shiftKey) {
-          // Cmd+Shift+L: open find bar prefilled with selection for replace-all
-          showFind = true;
-          requestAnimationFrame(() => editorRef?.openFindBar());
+          // Cmd+Shift+L: select all occurrences into virtual multi-cursor mode
+          editorRef?.selectAllOccurrences();
         } else {
           // Cmd+L: language picker
           showModePicker = true;
@@ -409,6 +485,11 @@
 
     window.addEventListener("keydown", onKeyDown);
 
+    const externalPollInterval = window.setInterval(() => {
+      if (!document.hasFocus()) return;
+      void checkExternalChanges();
+    }, 5000);
+
     // Handle CLI args
     invoke<string[]>("get_cli_args").then(async (args) => {
       const target = args[1];
@@ -434,7 +515,10 @@
       }
     });
 
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.clearInterval(externalPollInterval);
+    };
   });
 </script>
 

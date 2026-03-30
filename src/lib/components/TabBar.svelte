@@ -5,6 +5,7 @@
     id: string;
     path: string | null;
     isDirty: boolean;
+    externalModified?: boolean;
   }
 
   interface Props {
@@ -22,14 +23,17 @@
     <div
       class="tab"
       class:active={tab.id === activeTabId}
+      class:external-modified={!!tab.externalModified}
       role="tab"
       tabindex="0"
       aria-selected={tab.id === activeTabId}
       onclick={() => onselect(tab.id)}
       onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') onselect(tab.id); }}
-      title={tab.path ?? "Untitled"}
+      title={tab.externalModified ? `${tab.path ?? "Untitled"} (changed on disk)` : (tab.path ?? "Untitled")}
     >
-      <span class="tab-name">{fileName(tab.path)}{tab.isDirty ? " •" : ""}</span>
+      <span class="tab-name">
+        {fileName(tab.path)}{tab.isDirty ? " •" : ""}{tab.externalModified ? " ⟳" : ""}
+      </span>
       <button
         class="tab-close"
         type="button"
@@ -94,6 +98,10 @@
     background: #1a1a1a;
     color: #e0ddd8;
     box-shadow: inset 0 -2px 0 #c8956c;
+  }
+
+  .tab.external-modified:not(.active) {
+    color: #c0a07f;
   }
 
   .tab-name {

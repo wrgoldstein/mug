@@ -93,6 +93,6 @@ export function detectLanguage(path: string): BundledLanguage {
     case "bash":
       return "bash";
     default:
-      return "plaintext";
+      return "log";
   }
 }
