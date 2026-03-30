@@ -1301,16 +1301,17 @@
 
       // Unordered list items
       if (MARKDOWN_ENHANCE.lists && /^\s*[-*+]\s/.test(text)) {
-        let decorated = inner;
+        let decorated = escapeHtml(text);
+        const taskMatch = text.match(/^(\s*)([-*+])(\s+)\[( |x|X)\](\s+|$)/);
         const bulletMatch = text.match(/^(\s*)([-*+])(\s+)/);
         if (bulletMatch) {
           const markerStart = bulletMatch[1].length;
           const depth = markdownIndentDepth(bulletMatch[1]);
           const depthClass = `depth-${depth % 3}`;
-          decorated = wrapRawRangeInHtml(decorated, markerStart, markerStart + 1, `md-list-marker ${depthClass}`);
+          const markerClass = taskMatch ? `md-list-marker ${depthClass} task` : `md-list-marker ${depthClass}`;
+          decorated = wrapRawRangeInHtml(decorated, markerStart, markerStart + 1, markerClass);
         }
 
-        const taskMatch = text.match(/^(\s*)([-*+])(\s+)\[( |x|X)\](\s+)/);
         if (taskMatch) {
           const boxStart = taskMatch[1].length + taskMatch[2].length + taskMatch[3].length;
           const checked = /[xX]/.test(taskMatch[4]);
@@ -1325,7 +1326,7 @@
 
       // Ordered list items
       if (MARKDOWN_ENHANCE.lists && /^\s*\d+\.\s/.test(text)) {
-        let decorated = inner;
+        let decorated = escapeHtml(text);
         const orderedMatch = text.match(/^(\s*)(\d+\.)(\s+)/);
         if (orderedMatch) {
           const markerStart = orderedMatch[1].length;
@@ -1536,7 +1537,7 @@
     const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
     const line = value.slice(lineStart, lineEnd);
 
-    const taskMatch = line.match(/^(\s*)([-*+])(\s+)\[( |x|X)\](\s+)/);
+    const taskMatch = line.match(/^(\s*)([-*+])(\s+)\[( |x|X)\](\s+|$)/);
     if (!taskMatch) return null;
 
     const boxStart = lineStart + taskMatch[1].length + taskMatch[2].length + taskMatch[3].length;
@@ -2209,18 +2210,31 @@
     opacity: 0.8;
   }
 
+  .code-layer :global(.md-list .md-list-marker.task)::before {
+    content: "";
+  }
+
   .code-layer :global(.md-list .md-task-box) {
     color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
     position: relative;
+    display: inline-block;
+    width: 3ch;
+  }
+
+  .code-layer :global(.md-list .md-task-box *) {
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
   }
 
   .code-layer :global(.md-list .md-task-box)::before {
     content: "◯";
     position: absolute;
-    left: 0.15ch;
+    left: 0.6ch;
     top: 0;
     color: #c8956c;
-    opacity: 0.8;
+    -webkit-text-fill-color: #c8956c;
+    opacity: 0.9;
   }
 
   .code-layer :global(.md-list .md-task-box.checked)::before {
