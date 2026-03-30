@@ -25,6 +25,12 @@
   import ModePicker from "$lib/components/ModePicker.svelte";
 
   // ── Tab model ──────────────────────────────────────────────
+  interface GitLineChange {
+    kind: "added" | "modified" | "deleted";
+    startLine: number;
+    endLine: number;
+  }
+
   interface Tab {
     id: string;
     path: string | null;
@@ -32,6 +38,7 @@
     isDirty: boolean;
     externalModified: boolean;
     diskContent: string | null;
+    gitLineChanges: GitLineChange[];
     language: BundledLanguage;
     scroll: { scrollTop: number; scrollLeft: number };
     cursor: { selectionStart: number; selectionEnd: number };
@@ -45,6 +52,7 @@
       isDirty: false,
       externalModified: false,
       diskContent: path ? content : null,
+      gitLineChanges: [],
       language: language ?? (path ? detectLanguage(path) : "ts"),
       scroll: { scrollTop: 0, scrollLeft: 0 },
       cursor: { selectionStart: 0, selectionEnd: 0 },
@@ -114,6 +122,7 @@
       requestAnimationFrame(() => {
         editorRef?.restoreState(tab.scroll, tab.cursor);
       });
+      void refreshTabGitLineChanges(tab).then(() => { tabs = tabs; });
     }
   }
 
@@ -167,6 +176,8 @@
     tabs = tabs; // trigger reactivity
     activeTabId = tab.id;
     status = `Opened ${fileName(path)}`;
+    await refreshTabGitLineChanges(tab);
+    tabs = tabs;
   }
 
   function newFile() {
@@ -185,6 +196,7 @@
       activeTab.isDirty = false;
       activeTab.externalModified = false;
       activeTab.diskContent = activeTab.content;
+      await refreshTabGitLineChanges(activeTab);
       tabs = tabs;
       status = `Saved ${fileName(activeTab.path)}`;
       sidebarRef?.refreshCurrentDir();
@@ -207,6 +219,7 @@
     activeTab.isDirty = false;
     activeTab.externalModified = false;
     activeTab.diskContent = activeTab.content;
+    await refreshTabGitLineChanges(activeTab);
     tabs = tabs;
     status = `Saved ${fileName(selected)}`;
     sidebarRef?.refreshCurrentDir();
@@ -238,6 +251,7 @@
       activeTab.diskContent = diskContent;
       activeTab.externalModified = false;
       activeTab.isDirty = false;
+      await refreshTabGitLineChanges(activeTab);
       tabs = tabs;
       status = `Reloaded ${fileName(activeTab.path)}`;
     } catch {
@@ -264,6 +278,7 @@
     showSidebar = true;
     fetchGitBranch();
     invoke("register_directory", { dir: path });
+    void refreshActiveTabGitLineChanges();
   }
   let modePickerType = $state<"language" | "theme">("language");
 
@@ -277,6 +292,44 @@
     } catch {
       gitBranch = null;
     }
+  }
+
+  async function refreshTabGitLineChanges(tab: Tab) {
+    if (!tab.path) {
+      tab.gitLineChanges = [];
+      return;
+    }
+
+    const root = sidebarRef?.getRootDir();
+    if (!root) {
+      tab.gitLineChanges = [];
+      return;
+    }
+
+    const rel = relativePath(tab.path, root);
+    if (!rel || rel === ".") {
+      tab.gitLineChanges = [];
+      return;
+    }
+
+    try {
+      const hunks = await invoke<[string, number, number][]>("get_git_file_line_changes", { path: root, file: rel });
+      tab.gitLineChanges = hunks
+        .filter(([kind]) => kind === "added" || kind === "modified" || kind === "deleted")
+        .map(([kind, startLine, endLine]) => ({
+          kind: kind as GitLineChange["kind"],
+          startLine,
+          endLine,
+        }));
+    } catch {
+      tab.gitLineChanges = [];
+    }
+  }
+
+  async function refreshActiveTabGitLineChanges() {
+    if (!activeTab) return;
+    await refreshTabGitLineChanges(activeTab);
+    tabs = tabs;
   }
 
   function openFind() {
@@ -399,6 +452,7 @@
         event.preventDefault();
         if (event.shiftKey) {
           sidebarRef?.refreshCurrentDir();
+          await refreshActiveTabGitLineChanges();
           status = "Refreshed";
         } else {
           await reloadActiveFileFromDisk();
@@ -488,6 +542,7 @@
     const externalPollInterval = window.setInterval(() => {
       if (!document.hasFocus()) return;
       void checkExternalChanges();
+      void refreshActiveTabGitLineChanges();
     }, 5000);
 
     // Handle CLI args
@@ -501,6 +556,7 @@
           showSidebar = true;
           fetchGitBranch();
           invoke("register_directory", { dir: target });
+          void refreshActiveTabGitLineChanges();
         } else if (info.isFile) {
           // Open the file's parent directory in the sidebar
           const parentDir = target.substring(0, target.lastIndexOf("/")) || "/";
@@ -560,6 +616,7 @@
           theme={selectedTheme}
           {fontSize}
           isDirty={activeTab.isDirty}
+          gitLineChanges={activeTab.gitLineChanges}
           {showFind}
           {wordWrap}
           onchange={onEditorChange}

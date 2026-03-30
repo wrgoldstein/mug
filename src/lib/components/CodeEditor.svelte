@@ -3,12 +3,19 @@
   import { createHighlighter, type BundledLanguage, type BundledTheme, type Highlighter } from "shiki";
   import FindBar from "./FindBar.svelte";
 
+  interface GitLineChange {
+    kind: "added" | "modified" | "deleted";
+    startLine: number;
+    endLine: number;
+  }
+
   interface Props {
     content: string;
     language: BundledLanguage;
     theme: BundledTheme;
     fontSize: number;
     isDirty: boolean;
+    gitLineChanges: GitLineChange[];
     showFind: boolean;
     wordWrap: boolean;
     onchange: (content: string) => void;
@@ -55,6 +62,8 @@
     kind: "bold" | "table";
   }
 
+  type MarkdownRenderMode = "raw" | "mixed" | "rendered";
+
   interface MinimapBar {
     key: string;
     y: number;
@@ -63,7 +72,14 @@
     opacity: number;
   }
 
-  let { content, language, theme, fontSize, isDirty, showFind, wordWrap, onchange, onclosefind }: Props = $props();
+  interface MinimapGitMarker {
+    key: string;
+    kind: GitLineChange["kind"];
+    top: number;
+    height: number;
+  }
+
+  let { content, language, theme, fontSize, isDirty, gitLineChanges, showFind, wordWrap, onchange, onclosefind }: Props = $props();
 
   let highlightedHtml = $state('<pre class="shiki"><code></code></pre>');
   let highlighter: Highlighter | null = null;
@@ -86,13 +102,21 @@
 
   let minimapEl = $state<HTMLDivElement | null>(null);
   let minimapBars = $state<MinimapBar[]>([]);
+  let minimapGitMarkers = $state<MinimapGitMarker[]>([]);
   let minimapViewportTop = $state(0);
   let minimapViewportHeight = $state(0);
   let minimapDragOffset = 0;
   let minimapDragging = false;
 
+  const MARKDOWN_ENHANCE = {
+    bold: true,
+    tables: true,
+    lists: true,
+    quotes: true,
+  } as const;
+
   let markdownEditRanges: MarkdownEditRange[] = [];
-  let markdownShowRaw = $state(false);
+  let markdownRenderMode = $state<MarkdownRenderMode>("rendered");
 
   let multiCursor: MultiCursorState = {
     active: false,
@@ -153,28 +177,33 @@
     return start < range.end && end > range.start;
   }
 
-  function setMarkdownShowRaw(next: boolean) {
-    if (markdownShowRaw === next) return;
-    markdownShowRaw = next;
+  function setMarkdownRenderMode(next: MarkdownRenderMode) {
+    if (markdownRenderMode === next) return;
+    markdownRenderMode = next;
     scheduleHighlight();
   }
 
   function updateMarkdownEditModeFromSelection() {
     if (!isMarkdownLanguage()) {
-      setMarkdownShowRaw(false);
+      setMarkdownRenderMode("rendered");
       return;
     }
 
     const ta = textareaEl;
-    if (!ta || markdownEditRanges.length === 0) {
-      setMarkdownShowRaw(false);
+    if (!ta) {
+      setMarkdownRenderMode(markdownEditRanges.length > 0 ? "mixed" : "rendered");
+      return;
+    }
+
+    if (markdownEditRanges.length === 0) {
+      setMarkdownRenderMode("rendered");
       return;
     }
 
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
     const insideEditableMarkdown = markdownEditRanges.some((range) => overlapsRange(start, end, range));
-    setMarkdownShowRaw(insideEditableMarkdown);
+    setMarkdownRenderMode(insideEditableMarkdown ? "raw" : "mixed");
   }
 
   function computeMarkdownEditRanges(value: string): MarkdownEditRange[] {
@@ -280,6 +309,39 @@
     }
 
     minimapBars = nextBars;
+    rebuildMinimapGitMarkers(lineCount);
+  }
+
+  function rebuildMinimapGitMarkers(totalLines?: number) {
+    const minimap = minimapEl;
+    if (!minimap || !gitLineChanges || gitLineChanges.length === 0) {
+      minimapGitMarkers = [];
+      return;
+    }
+
+    const lines = totalLines ?? Math.max(1, getEditorValue().split("\n").length);
+    const mapHeight = minimap.clientHeight;
+    if (mapHeight <= 0) {
+      minimapGitMarkers = [];
+      return;
+    }
+
+    const markers: MinimapGitMarker[] = gitLineChanges.map((change, i) => {
+      const start = clamp(change.startLine, 1, lines);
+      const end = clamp(change.endLine, start, lines);
+      const top = ((start - 1) / lines) * mapHeight;
+      const rawHeight = ((end - start + 1) / lines) * mapHeight;
+      const minHeight = change.kind === "deleted" ? 2 : 3;
+      const height = Math.max(minHeight, rawHeight);
+      return {
+        key: `g-${i}-${change.kind}-${start}-${end}`,
+        kind: change.kind,
+        top,
+        height,
+      };
+    });
+
+    minimapGitMarkers = markers;
   }
 
   function updateMinimapViewport() {
@@ -1205,23 +1267,25 @@
     }
 
     const renderedTables = new Map<number, string>();
-    for (let i = 0; i < lineTexts.length;) {
-      if (!isMarkdownTableLike(lineTexts[i])) {
-        i += 1;
-        continue;
-      }
-
-      let j = i;
-      while (j < lineTexts.length && isMarkdownTableLike(lineTexts[j])) j += 1;
-
-      const rendered = renderMarkdownTableBlock(lineTexts.slice(i, j));
-      if (rendered) {
-        for (let k = 0; k < rendered.length; k++) {
-          renderedTables.set(i + k, rendered[k]);
+    if (MARKDOWN_ENHANCE.tables) {
+      for (let i = 0; i < lineTexts.length;) {
+        if (!isMarkdownTableLike(lineTexts[i])) {
+          i += 1;
+          continue;
         }
-      }
 
-      i = j;
+        let j = i;
+        while (j < lineTexts.length && isMarkdownTableLike(lineTexts[j])) j += 1;
+
+        const rendered = renderMarkdownTableBlock(lineTexts.slice(i, j));
+        if (rendered) {
+          for (let k = 0; k < rendered.length; k++) {
+            renderedTables.set(i + k, rendered[k]);
+          }
+        }
+
+        i = j;
+      }
     }
 
     // Second pass: apply existing markdown decorations + table rendering.
@@ -1231,30 +1295,18 @@
       const tableRendered = renderedTables.get(lineIndex);
       lineIndex += 1;
 
-      if (tableRendered) {
+      if (tableRendered && MARKDOWN_ENHANCE.tables) {
         return `<span class="line md-table">${escapeHtml(tableRendered)}</span>`;
       }
 
-      // Headers: lines starting with #
-      if (/^#{1,6}\s/.test(text)) {
-        const level = text.match(/^(#+)/)?.[1].length ?? 1;
-        const decorated = decorateInlineBold(inner, text);
-        return `<span class="line md-h md-h${level}">${decorated}</span>`;
-      }
-
-      // Horizontal rules
-      if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(text)) {
-        return `<span class="line md-hr">${inner}</span>`;
-      }
-
       // Unordered list items
-      if (/^\s*[-*+]\s/.test(text)) {
+      if (MARKDOWN_ENHANCE.lists && /^\s*[-*+]\s/.test(text)) {
         let decorated = inner;
         const bulletMatch = text.match(/^(\s*)([-*+])(\s+)/);
         if (bulletMatch) {
           const markerStart = bulletMatch[1].length;
           const depth = markdownIndentDepth(bulletMatch[1]);
-          const depthClass = `depth-${depth % 4}`;
+          const depthClass = `depth-${depth % 3}`;
           decorated = wrapRawRangeInHtml(decorated, markerStart, markerStart + 1, `md-list-marker ${depthClass}`);
         }
 
@@ -1265,12 +1317,14 @@
           decorated = wrapRawRangeInHtml(decorated, boxStart, boxStart + 3, checked ? "md-task-box checked" : "md-task-box");
         }
 
-        decorated = decorateInlineBold(decorated, text);
+        if (MARKDOWN_ENHANCE.bold) {
+          decorated = decorateInlineBold(decorated, text);
+        }
         return `<span class="line md-list">${decorated}</span>`;
       }
 
       // Ordered list items
-      if (/^\s*\d+\.\s/.test(text)) {
+      if (MARKDOWN_ENHANCE.lists && /^\s*\d+\.\s/.test(text)) {
         let decorated = inner;
         const orderedMatch = text.match(/^(\s*)(\d+\.)(\s+)/);
         if (orderedMatch) {
@@ -1278,22 +1332,19 @@
           const markerEnd = markerStart + orderedMatch[2].length;
           decorated = wrapRawRangeInHtml(decorated, markerStart, markerEnd, "md-olist-marker");
         }
-        decorated = decorateInlineBold(decorated, text);
+        if (MARKDOWN_ENHANCE.bold) {
+          decorated = decorateInlineBold(decorated, text);
+        }
         return `<span class="line md-list md-olist">${decorated}</span>`;
       }
 
       // Blockquotes
-      if (/^\s*>/.test(text)) {
-        const decorated = decorateInlineBold(inner, text);
+      if (MARKDOWN_ENHANCE.quotes && /^\s*>/.test(text)) {
+        const decorated = MARKDOWN_ENHANCE.bold ? decorateInlineBold(inner, text) : inner;
         return `<span class="line md-quote">${decorated}</span>`;
       }
 
-      // Frontmatter delimiters
-      if (/^---\s*$/.test(text)) {
-        return `<span class="line md-frontmatter">${inner}</span>`;
-      }
-
-      const decorated = decorateInlineBold(inner, text);
+      const decorated = MARKDOWN_ENHANCE.bold ? decorateInlineBold(inner, text) : inner;
       return `<span class="line">${decorated}</span>`;
     });
   }
@@ -1319,7 +1370,7 @@
       theme: theme
     });
 
-    if ((language === "md" || language === "markdown") && !markdownShowRaw) {
+    if ((language === "md" || language === "markdown") && markdownRenderMode !== "raw") {
       html = enhanceMarkdown(html);
     }
 
@@ -1714,6 +1765,7 @@
     void wordWrap;
     void fontSize;
     void minimapEl;
+    void gitLineChanges;
     rebuildMinimapBars();
     updateMinimapViewport();
   });
@@ -1725,7 +1777,7 @@
 
     if (!isMarkdownLanguage()) {
       markdownEditRanges = [];
-      setMarkdownShowRaw(false);
+      setMarkdownRenderMode("rendered");
       return;
     }
 
@@ -1846,6 +1898,17 @@
         ></rect>
       {/each}
     </svg>
+    <div class="minimap-git-layer" aria-hidden="true">
+      {#each minimapGitMarkers as marker (marker.key)}
+        <div
+          class="minimap-git-marker"
+          class:added={marker.kind === "added"}
+          class:modified={marker.kind === "modified"}
+          class:deleted={marker.kind === "deleted"}
+          style={`top:${marker.top}px;height:${marker.height}px;`}
+        ></div>
+      {/each}
+    </div>
     <div
       class="minimap-viewport"
       style={`top:${minimapViewportTop}px;height:${minimapViewportHeight}px;`}
@@ -1945,6 +2008,32 @@
     display: block;
     width: 100%;
     height: 100%;
+  }
+
+  .minimap-git-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .minimap-git-marker {
+    position: absolute;
+    right: 0;
+    width: 4px;
+    border-radius: 2px 0 0 2px;
+    opacity: 0.95;
+  }
+
+  .minimap-git-marker.added {
+    background: #3fb950;
+  }
+
+  .minimap-git-marker.modified {
+    background: #d29922;
+  }
+
+  .minimap-git-marker.deleted {
+    background: #f85149;
   }
 
   .minimap-viewport {
@@ -2050,14 +2139,14 @@
   }
 
   .code-layer :global(.md-list .md-list-marker)::before {
-    content: "◦";
+    content: "◉";
     position: absolute;
     left: 0;
     top: 0;
     width: 1ch;
     text-align: center;
     color: #c8956c;
-    opacity: 0.72;
+    opacity: 0.84;
   }
 
   .code-layer :global(.md-list .md-list-marker.depth-1)::before {
@@ -2066,13 +2155,8 @@
   }
 
   .code-layer :global(.md-list .md-list-marker.depth-2)::before {
-    content: "◉";
-    opacity: 0.84;
-  }
-
-  .code-layer :global(.md-list .md-list-marker.depth-3)::before {
-    content: "●";
-    opacity: 0.9;
+    content: "◌";
+    opacity: 0.68;
   }
 
   .code-layer :global(.md-list .md-task-box) {

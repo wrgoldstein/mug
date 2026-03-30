@@ -138,6 +138,88 @@ fn get_git_branch(path: String) -> Option<String> {
     if branch.is_empty() { None } else { Some(branch) }
 }
 
+fn parse_git_hunk_range(token: &str, prefix: char) -> Option<(usize, usize)> {
+    let raw = token.strip_prefix(prefix)?;
+    let mut parts = raw.split(',');
+    let start = parts.next()?.parse::<usize>().ok()?;
+    let count = parts
+        .next()
+        .map(|s| s.parse::<usize>().ok())
+        .flatten()
+        .unwrap_or(1);
+    Some((start, count))
+}
+
+#[tauri::command]
+fn get_git_file_line_changes(path: String, file: String) -> Vec<(String, usize, usize)> {
+    // Untracked files: mark whole file as added.
+    let status_output = std::process::Command::new("git")
+        .args(["-C", &path, "status", "--porcelain", "--", &file])
+        .output();
+
+    if let Ok(out) = status_output {
+        if out.status.success() {
+            let status = String::from_utf8_lossy(&out.stdout);
+            if status.lines().any(|line| line.starts_with("??")) {
+                let abs = std::path::Path::new(&path).join(&file);
+                let line_count = std::fs::read_to_string(&abs)
+                    .ok()
+                    .map(|s| s.lines().count())
+                    .unwrap_or(1)
+                    .max(1);
+                return vec![("added".to_string(), 1, line_count)];
+            }
+        }
+    }
+
+    // Combined diff against HEAD includes staged + unstaged changes.
+    let output = match std::process::Command::new("git")
+        .args(["-C", &path, "diff", "--no-color", "--unified=0", "HEAD", "--", &file])
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return vec![],
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut changes: Vec<(String, usize, usize)> = Vec::new();
+
+    for line in stdout.lines() {
+        if !line.starts_with("@@") {
+            continue;
+        }
+
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 3 {
+            continue;
+        }
+
+        let (old_start, old_count) = match parse_git_hunk_range(parts[1], '-') {
+            Some(v) => v,
+            None => continue,
+        };
+        let (new_start, new_count) = match parse_git_hunk_range(parts[2], '+') {
+            Some(v) => v,
+            None => continue,
+        };
+
+        if old_count == 0 && new_count > 0 {
+            let start = new_start.max(1);
+            let end = start + new_count.saturating_sub(1);
+            changes.push(("added".to_string(), start, end));
+        } else if new_count == 0 && old_count > 0 {
+            let anchor = if new_start == 0 { old_start.max(1) } else { new_start.max(1) };
+            changes.push(("deleted".to_string(), anchor, anchor));
+        } else if old_count > 0 && new_count > 0 {
+            let start = new_start.max(1);
+            let end = start + new_count.saturating_sub(1);
+            changes.push(("modified".to_string(), start, end));
+        }
+    }
+
+    changes
+}
+
 // ── File I/O (no scope restrictions) ─────────────────────────
 
 #[tauri::command]
@@ -174,7 +256,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![get_cli_args, get_git_branch, get_git_status, zoxide_query, fzf_files, register_directory, unregister_directory, read_text_file, write_text_file, stat_path, read_dir_entries])
+        .invoke_handler(tauri::generate_handler![get_cli_args, get_git_branch, get_git_status, get_git_file_line_changes, zoxide_query, fzf_files, register_directory, unregister_directory, read_text_file, write_text_file, stat_path, read_dir_entries])
         .on_window_event(|_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 let _ = std::fs::remove_file(instance_file());
