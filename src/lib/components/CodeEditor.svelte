@@ -1712,13 +1712,13 @@
 
     if (ctrlOnly && key === "x") {
       event.preventDefault();
-      insertTextAtSelection(":x:");
+      insertTextAtSelection("❌");
       return;
     }
 
     if (ctrlOnly && key === "c") {
       event.preventDefault();
-      insertTextAtSelection(":checkmark:");
+      insertTextAtSelection("✅");
       return;
     }
 
