@@ -1528,6 +1528,46 @@
     }
   }
 
+  function findMarkdownTaskAtOffset(value: string, offset: number) {
+    if (offset < 0 || offset > value.length) return null;
+
+    const lineStart = value.lastIndexOf("\n", Math.max(0, offset - 1)) + 1;
+    const lineEndIdx = value.indexOf("\n", offset);
+    const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
+    const line = value.slice(lineStart, lineEnd);
+
+    const taskMatch = line.match(/^(\s*)([-*+])(\s+)\[( |x|X)\](\s+)/);
+    if (!taskMatch) return null;
+
+    const boxStart = lineStart + taskMatch[1].length + taskMatch[2].length + taskMatch[3].length;
+    const boxEnd = boxStart + 3;
+    const hitStart = Math.max(lineStart, boxStart - 1);
+    const hitEnd = Math.min(value.length, boxEnd + 1);
+    if (offset < hitStart || offset > hitEnd) return null;
+
+    return {
+      checkIndex: boxStart + 1,
+      checked: /[xX]/.test(taskMatch[4]),
+    };
+  }
+
+  function toggleMarkdownTaskAtOffset(offset: number): boolean {
+    const ta = textareaEl;
+    if (!ta || !isMarkdownLanguage() || markdownRenderMode === "raw") return false;
+
+    const task = findMarkdownTaskAtOffset(ta.value, offset);
+    if (!task) return false;
+
+    const next = task.checked ? " " : "x";
+    const nextValue = `${ta.value.slice(0, task.checkIndex)}${next}${ta.value.slice(task.checkIndex + 1)}`;
+    if (nextValue === ta.value) return false;
+
+    ta.value = nextValue;
+    ta.setSelectionRange(task.checkIndex, task.checkIndex);
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }
+
   function onTextareaMouseUp() {
     scheduleMarkdownSelectionSync();
   }
@@ -1536,8 +1576,19 @@
     scheduleMarkdownSelectionSync();
   }
 
-  function onTextareaClick() {
+  function onTextareaClick(event: MouseEvent) {
     scheduleMarkdownSelectionSync();
+
+    if (event.detail !== 1) return;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+
+    const ta = textareaEl;
+    if (!ta || ta.selectionStart !== ta.selectionEnd) return;
+
+    if (toggleMarkdownTaskAtOffset(ta.selectionStart)) {
+      event.preventDefault();
+      scheduleMarkdownSelectionSync();
+    }
   }
 
   function onTextareaFocus() {
