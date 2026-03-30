@@ -14,7 +14,6 @@
   let query = $state("");
   let selectedIndex = $state(0);
   let inputEl: HTMLInputElement;
-  let mouseActive = $state(false);
 
   let filtered = $derived(
     query
@@ -68,10 +67,14 @@
   });
 </script>
 
-<div class="overlay" onclick={onclose}>
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="picker" class:mouse-active={mouseActive} onclick={(e) => e.stopPropagation()} onmousemove={() => mouseActive = true}>
+<div class="overlay" role="presentation">
+  <button
+    type="button"
+    class="overlay-backdrop"
+    aria-label="Close language picker"
+    onclick={onclose}
+  ></button>
+  <div class="picker">
     <input
       bind:this={inputEl}
       class="picker-input"
@@ -100,10 +103,19 @@
     position: fixed;
     inset: 0;
     z-index: 100;
-    background: rgba(0, 0, 0, 0.5);
     display: flex;
     justify-content: center;
     padding-top: 15vh;
+  }
+
+  .overlay-backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.5);
+    cursor: default;
   }
 
   .picker {
@@ -117,6 +129,8 @@
     flex-direction: column;
     overflow: hidden;
     align-self: flex-start;
+    position: relative;
+    z-index: 1;
   }
 
   .picker-input {
@@ -162,7 +176,7 @@
     color: #e0ddd8;
   }
 
-  .picker.mouse-active .mode-item:hover {
+  .picker .mode-item:hover {
     background: #2a2a2a;
     border-left-color: #c8956c;
     color: #e0ddd8;

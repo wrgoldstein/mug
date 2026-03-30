@@ -101,6 +101,13 @@
     window.addEventListener("mouseup", onUp);
   }
 
+  function onResizeHandleKeyDown(event: KeyboardEvent) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const delta = event.key === "ArrowLeft" ? -12 : 12;
+    sidebarWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, sidebarWidth + delta));
+  }
+
   const languageOptions: BundledLanguage[] = ["ts", "js", "python", "ruby", "elixir", "go", "rust", "svelte", "json", "yaml", "toml", "sql", "markdown", "md", "html", "css", "bash", "log"];
   const themeOptions: BundledTheme[] = ["github-dark", "github-light", "dracula", "nord"];
 
@@ -602,7 +609,13 @@
     />
 
     {#if showSidebar}
-      <div class="resize-handle" onmousedown={onDragStart}></div>
+      <button
+        type="button"
+        class="resize-handle"
+        aria-label="Resize sidebar"
+        onmousedown={onDragStart}
+        onkeydown={onResizeHandleKeyDown}
+      ></button>
     {/if}
 
     {#if showWelcome}
@@ -720,26 +733,15 @@
     background: transparent;
     cursor: col-resize;
     transition: background 0.15s;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    width: 4px;
   }
 
   .resize-handle:hover,
   .workspace.dragging .resize-handle {
     background: #c8956c;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 0.85rem;
-    font-weight: 400;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: #a09a92;
-  }
-
-  .dirty-dot {
-    color: #c8956c;
   }
 
   .footer-left {

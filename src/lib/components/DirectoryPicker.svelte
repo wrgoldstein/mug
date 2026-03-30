@@ -14,7 +14,6 @@
   let selectedIndex = $state(0);
   let inputEl: HTMLInputElement;
   let listEl: HTMLDivElement;
-  let mouseActive = $state(false);
   let loading = $state(false);
   let pickedPath = $state<string | null>(null);
 
@@ -87,10 +86,14 @@
   });
 </script>
 
-<div class="picker-overlay" onclick={onclose}>
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="picker" class:mouse-active={mouseActive} class:loading onclick={(e) => e.stopPropagation()} onmousemove={() => mouseActive = true}>
+<div class="picker-overlay" role="presentation">
+  <button
+    type="button"
+    class="picker-backdrop"
+    aria-label="Close directory picker"
+    onclick={onclose}
+  ></button>
+  <div class="picker" class:loading>
     <input
       bind:this={inputEl}
       class="picker-input"
@@ -126,10 +129,19 @@
     position: fixed;
     inset: 0;
     z-index: 100;
-    background: rgba(0, 0, 0, 0.5);
     display: flex;
     justify-content: center;
     padding-top: 12vh;
+  }
+
+  .picker-backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.5);
+    cursor: default;
   }
 
   .picker {
@@ -144,6 +156,7 @@
     overflow: hidden;
     align-self: flex-start;
     position: relative;
+    z-index: 1;
     transition: opacity 0.2s, transform 0.2s;
   }
 
@@ -193,7 +206,7 @@
     border-left-color: #c8956c;
   }
 
-  .picker.mouse-active .picker-item:hover {
+  .picker .picker-item:hover {
     background: #2a2a2a;
     border-left-color: #c8956c;
   }
