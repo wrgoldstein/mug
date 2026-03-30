@@ -1266,6 +1266,15 @@
       lineTexts.push(lineMatch[1].replace(/<[^>]*>/g, ""));
     }
 
+    const lineStarts: number[] = [];
+    {
+      let offset = 0;
+      for (const line of lineTexts) {
+        lineStarts.push(offset);
+        offset += line.length + 1;
+      }
+    }
+
     const renderedTables = new Map<number, string>();
     if (MARKDOWN_ENHANCE.tables) {
       for (let i = 0; i < lineTexts.length;) {
@@ -1292,7 +1301,9 @@
     let lineIndex = 0;
     return html.replace(/<span class="line">(.*)<\/span>/g, (match, inner) => {
       const text = inner.replace(/<[^>]*>/g, ""); // strip tags to get raw text
-      const tableRendered = renderedTables.get(lineIndex);
+      const currentLine = lineIndex;
+      const lineStartOffset = lineStarts[currentLine] ?? 0;
+      const tableRendered = renderedTables.get(currentLine);
       lineIndex += 1;
 
       if (tableRendered && MARKDOWN_ENHANCE.tables) {
@@ -1315,7 +1326,9 @@
         if (taskMatch) {
           const boxStart = taskMatch[1].length + taskMatch[2].length + taskMatch[3].length;
           const checked = /[xX]/.test(taskMatch[4]);
-          decorated = wrapRawRangeInHtml(decorated, boxStart, boxStart + 3, checked ? "md-task-box checked" : "md-task-box");
+          const checkIndex = lineStartOffset + boxStart + 1;
+          const taskClass = checked ? "md-task-box checked" : "md-task-box";
+          decorated = wrapRawRangeInHtml(decorated, boxStart, boxStart + 3, `${taskClass} task-at-${checkIndex}`);
         }
 
         if (MARKDOWN_ENHANCE.bold) {
@@ -1567,6 +1580,34 @@
     ta.setSelectionRange(task.checkIndex, task.checkIndex);
     ta.dispatchEvent(new Event("input", { bubbles: true }));
     return true;
+  }
+
+  function getTaskOffsetFromClass(el: Element): number | null {
+    for (const className of Array.from(el.classList)) {
+      if (!className.startsWith("task-at-")) continue;
+      const offset = Number.parseInt(className.slice("task-at-".length), 10);
+      if (Number.isFinite(offset)) return offset;
+    }
+    return null;
+  }
+
+  function onCodeLayerClick(event: MouseEvent) {
+    if (!isMarkdownLanguage() || markdownRenderMode === "raw") return;
+
+    const target = event.target as HTMLElement | null;
+    const taskEl = target?.closest(".md-task-box");
+    if (!taskEl) return;
+
+    const offset = getTaskOffsetFromClass(taskEl);
+    if (offset == null) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (toggleMarkdownTaskAtOffset(offset)) {
+      textareaEl?.focus();
+      scheduleMarkdownSelectionSync();
+    }
   }
 
   function onTextareaMouseUp() {
@@ -1865,6 +1906,9 @@
     };
     window.addEventListener("resize", onWindowResize);
 
+    const onCodeLayerClickEvent = (event: MouseEvent) => onCodeLayerClick(event);
+    codeLayerEl?.addEventListener("click", onCodeLayerClickEvent);
+
     void (async () => {
       highlighter = await createHighlighter({
         themes: [theme],
@@ -1880,6 +1924,7 @@
       minimapDragging = false;
       observer.disconnect();
       window.removeEventListener("resize", onWindowResize);
+      codeLayerEl?.removeEventListener("click", onCodeLayerClickEvent);
       clearGhostVisuals();
     };
   });
@@ -2220,6 +2265,9 @@
     position: relative;
     display: inline-block;
     width: 3ch;
+    pointer-events: auto;
+    cursor: pointer;
+    user-select: none;
   }
 
   .code-layer :global(.md-list .md-task-box *) {
