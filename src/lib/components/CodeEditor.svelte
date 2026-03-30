@@ -1266,15 +1266,6 @@
       lineTexts.push(lineMatch[1].replace(/<[^>]*>/g, ""));
     }
 
-    const lineStarts: number[] = [];
-    {
-      let offset = 0;
-      for (const line of lineTexts) {
-        lineStarts.push(offset);
-        offset += line.length + 1;
-      }
-    }
-
     const renderedTables = new Map<number, string>();
     if (MARKDOWN_ENHANCE.tables) {
       for (let i = 0; i < lineTexts.length;) {
@@ -1301,9 +1292,7 @@
     let lineIndex = 0;
     return html.replace(/<span class="line">(.*)<\/span>/g, (match, inner) => {
       const text = inner.replace(/<[^>]*>/g, ""); // strip tags to get raw text
-      const currentLine = lineIndex;
-      const lineStartOffset = lineStarts[currentLine] ?? 0;
-      const tableRendered = renderedTables.get(currentLine);
+      const tableRendered = renderedTables.get(lineIndex);
       lineIndex += 1;
 
       if (tableRendered && MARKDOWN_ENHANCE.tables) {
@@ -1326,9 +1315,7 @@
         if (taskMatch) {
           const boxStart = taskMatch[1].length + taskMatch[2].length + taskMatch[3].length;
           const checked = /[xX]/.test(taskMatch[4]);
-          const checkIndex = lineStartOffset + boxStart + 1;
-          const taskClass = checked ? "md-task-box checked" : "md-task-box";
-          decorated = wrapRawRangeInHtml(decorated, boxStart, boxStart + 3, `${taskClass} task-at-${checkIndex}`);
+          decorated = wrapRawRangeInHtml(decorated, boxStart, boxStart + 3, checked ? "md-task-box checked" : "md-task-box");
         }
 
         if (MARKDOWN_ENHANCE.bold) {
@@ -1582,32 +1569,53 @@
     return true;
   }
 
-  function getTaskOffsetFromClass(el: Element): number | null {
-    for (const className of Array.from(el.classList)) {
-      if (!className.startsWith("task-at-")) continue;
-      const offset = Number.parseInt(className.slice("task-at-".length), 10);
-      if (Number.isFinite(offset)) return offset;
+  function insertTextAtSelection(text: string) {
+    const ta = textareaEl;
+    if (!ta) return;
+
+    if (hasVirtualCursors()) {
+      applyInsertTextAtVirtualCursors(text);
+      return;
     }
-    return null;
+
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
+    const next = start + text.length;
+    ta.setSelectionRange(next, next);
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
-  function onCodeLayerClick(event: MouseEvent) {
-    if (!isMarkdownLanguage() || markdownRenderMode === "raw") return;
+  function toggleMarkdownTasksInSelection(): boolean {
+    const ta = textareaEl;
+    if (!ta || !isMarkdownLanguage()) return false;
 
-    const target = event.target as HTMLElement | null;
-    const taskEl = target?.closest(".md-task-box");
-    if (!taskEl) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
 
-    const offset = getTaskOffsetFromClass(taskEl);
-    if (offset == null) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    if (toggleMarkdownTaskAtOffset(offset)) {
-      textareaEl?.focus();
-      scheduleMarkdownSelectionSync();
+    if (start === end) {
+      return toggleMarkdownTaskAtOffset(start);
     }
+
+    const value = ta.value;
+    const blockStart = value.lastIndexOf("\n", start - 1) + 1;
+    const lineEnd = value.indexOf("\n", end);
+    const blockEnd = lineEnd === -1 ? value.length : lineEnd;
+    const block = value.slice(blockStart, blockEnd);
+
+    let changed = false;
+    const toggledBlock = block.replace(/^(\s*(?:[-*+]|\d+\.)\s+\[)( |x|X)(\])/gm, (_m, pre, state, post) => {
+      changed = true;
+      const next = state === " " ? "x" : " ";
+      return `${pre}${next}${post}`;
+    });
+
+    if (!changed) return false;
+
+    ta.value = value.slice(0, blockStart) + toggledBlock + value.slice(blockEnd);
+    ta.setSelectionRange(start, end);
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
   }
 
   function onTextareaMouseUp() {
@@ -1618,19 +1626,8 @@
     scheduleMarkdownSelectionSync();
   }
 
-  function onTextareaClick(event: MouseEvent) {
+  function onTextareaClick() {
     scheduleMarkdownSelectionSync();
-
-    if (event.detail !== 1) return;
-    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-
-    const ta = textareaEl;
-    if (!ta || ta.selectionStart !== ta.selectionEnd) return;
-
-    if (toggleMarkdownTaskAtOffset(ta.selectionStart)) {
-      event.preventDefault();
-      scheduleMarkdownSelectionSync();
-    }
   }
 
   function onTextareaFocus() {
@@ -1704,7 +1701,26 @@
 
   function onKeyDown(event: KeyboardEvent) {
     const mod = event.metaKey || event.ctrlKey;
+    const ctrlOnly = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
     const key = event.key.toLowerCase();
+
+    if (ctrlOnly && key === "t") {
+      event.preventDefault();
+      toggleMarkdownTasksInSelection();
+      return;
+    }
+
+    if (ctrlOnly && key === "x") {
+      event.preventDefault();
+      insertTextAtSelection(":x:");
+      return;
+    }
+
+    if (ctrlOnly && key === "c") {
+      event.preventDefault();
+      insertTextAtSelection(":checkmark:");
+      return;
+    }
 
     if (mod && key === "z") {
       if (event.shiftKey) {
@@ -1906,9 +1922,6 @@
     };
     window.addEventListener("resize", onWindowResize);
 
-    const onCodeLayerClickEvent = (event: MouseEvent) => onCodeLayerClick(event);
-    codeLayerEl?.addEventListener("click", onCodeLayerClickEvent);
-
     void (async () => {
       highlighter = await createHighlighter({
         themes: [theme],
@@ -1924,7 +1937,6 @@
       minimapDragging = false;
       observer.disconnect();
       window.removeEventListener("resize", onWindowResize);
-      codeLayerEl?.removeEventListener("click", onCodeLayerClickEvent);
       clearGhostVisuals();
     };
   });
@@ -2265,9 +2277,6 @@
     position: relative;
     display: inline-block;
     width: 3ch;
-    pointer-events: auto;
-    cursor: pointer;
-    user-select: none;
   }
 
   .code-layer :global(.md-list .md-task-box *) {
