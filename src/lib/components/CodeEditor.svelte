@@ -2127,7 +2127,6 @@
 
   .code-layer :global(.md-list .md-list-marker) {
     color: transparent !important;
-    -webkit-text-fill-color: transparent;
     position: relative;
     display: inline-block;
     width: 1ch;
@@ -2135,7 +2134,6 @@
 
   .code-layer :global(.md-list .md-list-marker *) {
     color: transparent !important;
-    -webkit-text-fill-color: transparent !important;
   }
 
   .code-layer :global(.md-list .md-list-marker)::before {
@@ -2146,17 +2144,18 @@
     width: 1ch;
     text-align: center;
     color: #c8956c;
-    opacity: 0.84;
+    -webkit-text-fill-color: #c8956c;
+    opacity: 0.95;
   }
 
   .code-layer :global(.md-list .md-list-marker.depth-1)::before {
     content: "○";
-    opacity: 0.78;
+    opacity: 0.88;
   }
 
   .code-layer :global(.md-list .md-list-marker.depth-2)::before {
-    content: "◌";
-    opacity: 0.68;
+    content: "◦";
+    opacity: 0.8;
   }
 
   .code-layer :global(.md-list .md-task-box) {
