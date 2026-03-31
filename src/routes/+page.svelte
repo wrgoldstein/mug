@@ -173,6 +173,7 @@
     const existing = tabs.find(t => t.path === path);
     if (existing) {
       switchToTab(existing.id);
+      focusEditorSoon();
       return;
     }
 
@@ -185,6 +186,7 @@
     status = `Opened ${fileName(path)}`;
     await refreshTabGitLineChanges(tab);
     tabs = tabs;
+    focusEditorSoon();
   }
 
   function focusEditorSoon() {
@@ -679,8 +681,12 @@
           status = `Language: ${lang}`;
         }
         showModePicker = false;
+        focusEditorSoon();
       }}
-      onclose={() => showModePicker = false}
+      onclose={() => {
+        showModePicker = false;
+        focusEditorSoon();
+      }}
     />
   {/if}
 
