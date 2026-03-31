@@ -2,6 +2,9 @@
   import { onMount } from "svelte";
   import { createHighlighter, type BundledLanguage, type BundledTheme, type Highlighter } from "shiki";
   import FindBar from "./FindBar.svelte";
+  import Minimap from "./Minimap.svelte";
+  import { createEditorHistory, type HistoryEntry } from "$lib/utils/useEditorHistory";
+  import { enhanceMarkdownHtml, escapeHtml, isMarkdownTableLike, renderMarkdownTableBlock } from "$lib/utils/markdownOverlay";
 
   interface GitLineChange {
     kind: "added" | "modified" | "deleted";
@@ -50,12 +53,6 @@
     height: number;
   }
 
-  interface HistoryEntry {
-    value: string;
-    selectionStart: number;
-    selectionEnd: number;
-  }
-
   interface MarkdownEditRange {
     start: number;
     end: number;
@@ -63,21 +60,6 @@
   }
 
   type MarkdownRenderMode = "raw" | "mixed" | "rendered";
-
-  interface MinimapBar {
-    key: string;
-    y: number;
-    height: number;
-    width: number;
-    opacity: number;
-  }
-
-  interface MinimapGitMarker {
-    key: string;
-    kind: GitLineChange["kind"];
-    top: number;
-    height: number;
-  }
 
   let { content, language, theme, fontSize, isDirty, gitLineChanges, showFind, wordWrap, onchange, onclosefind }: Props = $props();
 
@@ -95,27 +77,13 @@
   let ghostUpdateTimer: number | null = null;
   let measureTextNode: Text | null = null;
 
-  const MAX_HISTORY = 500;
-  let historyEntries: HistoryEntry[] = [];
-  let historyIndex = -1;
-  let applyingHistory = false;
+  const history = createEditorHistory(500);
 
-  let minimapEl = $state<HTMLDivElement | null>(null);
-  let minimapBars = $state<MinimapBar[]>([]);
-  let minimapGitMarkers = $state<MinimapGitMarker[]>([]);
-  let minimapViewportTop = $state(0);
-  let minimapViewportHeight = $state(0);
-  let minimapDragOffset = 0;
-  let minimapDragging = false;
+  let editorScrollTop = $state(0);
+  let editorScrollHeight = $state(0);
+  let editorClientHeight = $state(0);
   const MINIMAP_MIN_LINES = 100;
   let showMinimap = $derived(((content.match(/\n/g)?.length ?? 0) + 1) > MINIMAP_MIN_LINES);
-
-  const MARKDOWN_ENHANCE = {
-    bold: true,
-    tables: true,
-    lists: true,
-    quotes: true,
-  } as const;
 
   let markdownEditRanges: MarkdownEditRange[] = [];
   let markdownRenderMode = $state<MarkdownRenderMode>("rendered");
@@ -265,176 +233,6 @@
     }
 
     return ranges;
-  }
-
-  function rebuildMinimapBars() {
-    const value = getEditorValue();
-    const lines = value.split("\n");
-    const lineCount = Math.max(1, lines.length);
-
-    const targetRows = Math.max(28, Math.floor((minimapEl?.clientHeight ?? 280) / 3));
-    const rows = Math.max(1, Math.min(lineCount, targetRows));
-    const bucketSize = Math.ceil(lineCount / rows);
-
-    let longestLine = 1;
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].length > longestLine) longestLine = lines[i].length;
-    }
-
-    const nextBars: MinimapBar[] = [];
-    for (let row = 0; row < rows; row++) {
-      const start = row * bucketSize;
-      const end = Math.min(lineCount, start + bucketSize);
-      if (start >= end) break;
-
-      let longestInBucket = 0;
-      let nonEmpty = 0;
-      for (let i = start; i < end; i++) {
-        const len = (lines[i] ?? "").trim().length;
-        if (len > 0) nonEmpty++;
-        if (len > longestInBucket) longestInBucket = len;
-      }
-
-      const density = nonEmpty / (end - start || 1);
-      const width = clamp((longestInBucket / longestLine) * 100, 6, 100);
-      const y = (row / rows) * 100;
-      const height = 100 / rows;
-      const opacity = clamp(0.14 + density * 0.3, 0.12, 0.45);
-
-      nextBars.push({
-        key: `m-${row}-${start}-${end}`,
-        y,
-        height,
-        width,
-        opacity,
-      });
-    }
-
-    minimapBars = nextBars;
-    rebuildMinimapGitMarkers(lineCount);
-  }
-
-  function rebuildMinimapGitMarkers(totalLines?: number) {
-    const minimap = minimapEl;
-    if (!minimap || !gitLineChanges || gitLineChanges.length === 0) {
-      minimapGitMarkers = [];
-      return;
-    }
-
-    const lines = totalLines ?? Math.max(1, getEditorValue().split("\n").length);
-    const mapHeight = minimap.clientHeight;
-    if (mapHeight <= 0) {
-      minimapGitMarkers = [];
-      return;
-    }
-
-    const markers: MinimapGitMarker[] = gitLineChanges.map((change, i) => {
-      const start = clamp(change.startLine, 1, lines);
-      const end = clamp(change.endLine, start, lines);
-      const top = ((start - 1) / lines) * mapHeight;
-      const rawHeight = ((end - start + 1) / lines) * mapHeight;
-      const minHeight = change.kind === "deleted" ? 2 : 3;
-      const height = Math.max(minHeight, rawHeight);
-      return {
-        key: `g-${i}-${change.kind}-${start}-${end}`,
-        kind: change.kind,
-        top,
-        height,
-      };
-    });
-
-    minimapGitMarkers = markers;
-  }
-
-  function updateMinimapViewport() {
-    const ta = textareaEl;
-    const minimap = minimapEl;
-    if (!ta || !minimap) {
-      minimapViewportTop = 0;
-      minimapViewportHeight = 0;
-      return;
-    }
-
-    const mapHeight = minimap.clientHeight;
-    if (mapHeight <= 0) {
-      minimapViewportTop = 0;
-      minimapViewportHeight = 0;
-      return;
-    }
-
-    const scrollRange = Math.max(0, ta.scrollHeight - ta.clientHeight);
-    const minViewport = 20;
-    let viewportHeight = ta.scrollHeight <= 0
-      ? mapHeight
-      : Math.max(minViewport, (ta.clientHeight / ta.scrollHeight) * mapHeight);
-    viewportHeight = Math.min(mapHeight, viewportHeight);
-
-    const trackRange = Math.max(0, mapHeight - viewportHeight);
-    const viewportTop = scrollRange === 0 ? 0 : (ta.scrollTop / scrollRange) * trackRange;
-
-    minimapViewportHeight = viewportHeight;
-    minimapViewportTop = clamp(viewportTop, 0, trackRange);
-  }
-
-  function scrollToMinimapClientY(clientY: number) {
-    const ta = textareaEl;
-    const minimap = minimapEl;
-    if (!ta || !minimap) return;
-
-    const rect = minimap.getBoundingClientRect();
-    const mapHeight = rect.height;
-    if (mapHeight <= 0) return;
-
-    const scrollRange = Math.max(0, ta.scrollHeight - ta.clientHeight);
-    if (scrollRange <= 0) return;
-
-    const trackRange = Math.max(1, mapHeight - minimapViewportHeight);
-    const localY = clamp(clientY - rect.top - minimapDragOffset, 0, trackRange);
-    const ratio = localY / trackRange;
-
-    ta.scrollTop = ratio * scrollRange;
-    syncScroll();
-  }
-
-  function onMinimapMouseDown(event: MouseEvent) {
-    const minimap = minimapEl;
-    if (!minimap) return;
-
-    event.preventDefault();
-    const rect = minimap.getBoundingClientRect();
-    const localY = event.clientY - rect.top;
-    const viewportBottom = minimapViewportTop + minimapViewportHeight;
-
-    if (localY >= minimapViewportTop && localY <= viewportBottom) {
-      minimapDragOffset = localY - minimapViewportTop;
-    } else {
-      minimapDragOffset = minimapViewportHeight / 2;
-    }
-
-    minimapDragging = true;
-    scrollToMinimapClientY(event.clientY);
-
-    const onMove = (e: MouseEvent) => {
-      if (!minimapDragging) return;
-      scrollToMinimapClientY(e.clientY);
-    };
-
-    const onUp = () => {
-      minimapDragging = false;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }
-
-  function onMinimapWheel(event: WheelEvent) {
-    const ta = textareaEl;
-    if (!ta) return;
-    event.preventDefault();
-    ta.scrollTop += event.deltaY;
-    syncScroll();
   }
 
   function hasVirtualCursors(): boolean {
@@ -652,51 +450,13 @@
     ghostUpdateTimer = requestAnimationFrame(refreshGhostVisuals);
   }
 
-  function pushHistoryEntry(value: string, selectionStart: number, selectionEnd: number) {
-    if (applyingHistory) return;
-
-    const prev = historyEntries[historyIndex];
-    if (prev && prev.value === value && prev.selectionStart === selectionStart && prev.selectionEnd === selectionEnd) {
-      return;
-    }
-
-    if (historyIndex < historyEntries.length - 1) {
-      historyEntries = historyEntries.slice(0, historyIndex + 1);
-    }
-
-    historyEntries.push({ value, selectionStart, selectionEnd });
-
-    if (historyEntries.length > MAX_HISTORY) {
-      const overflow = historyEntries.length - MAX_HISTORY;
-      historyEntries.splice(0, overflow);
-      historyIndex = Math.max(0, historyIndex - overflow);
-    }
-
-    historyIndex = historyEntries.length - 1;
-  }
-
-  function resetHistory(value: string, selectionStart = 0, selectionEnd = selectionStart) {
-    historyEntries = [{ value, selectionStart, selectionEnd }];
-    historyIndex = 0;
-  }
-
-  function canUndoHistory(): boolean {
-    return historyIndex > 0;
-  }
-
-  function canRedoHistory(): boolean {
-    return historyIndex >= 0 && historyIndex < historyEntries.length - 1;
-  }
-
   function applyHistoryEntry(entry: HistoryEntry) {
     const ta = textareaEl;
     if (!ta) return;
 
-    applyingHistory = true;
     ta.value = entry.value;
     ta.selectionStart = entry.selectionStart;
     ta.selectionEnd = entry.selectionEnd;
-    applyingHistory = false;
 
     clearMultiCursor();
     onchange(entry.value);
@@ -707,22 +467,16 @@
       updateMarkdownEditModeFromSelection();
     }
 
-    rebuildMinimapBars();
-    updateMinimapViewport();
     highlightSync();
   }
 
   function undoHistory() {
-    if (!canUndoHistory()) return;
-    historyIndex -= 1;
-    const entry = historyEntries[historyIndex];
+    const entry = history.undo();
     if (entry) applyHistoryEntry(entry);
   }
 
   function redoHistory() {
-    if (!canRedoHistory()) return;
-    historyIndex += 1;
-    const entry = historyEntries[historyIndex];
+    const entry = history.redo();
     if (entry) applyHistoryEntry(entry);
   }
 
@@ -1119,246 +873,14 @@
       textareaEl.scrollTop = scroll.scrollTop;
       textareaEl.scrollLeft = scroll.scrollLeft;
       syncScroll();
-      if (historyEntries.length === 1 && historyIndex === 0) {
-        resetHistory(textareaEl.value, cursor.selectionStart, cursor.selectionEnd);
+      if (history.isInitialState()) {
+        history.reset(textareaEl.value, cursor.selectionStart, cursor.selectionEnd);
       }
       if (isMarkdownLanguage()) {
         markdownEditRanges = computeMarkdownEditRanges(textareaEl.value);
         updateMarkdownEditModeFromSelection();
       }
     });
-  }
-
-  function rawPosToHtmlIndex(html: string, rawPos: number): number {
-    if (rawPos <= 0) return 0;
-
-    let raw = 0;
-    let i = 0;
-
-    while (i < html.length) {
-      if (raw >= rawPos) return i;
-
-      const ch = html[i];
-      if (ch === "<") {
-        const close = html.indexOf(">", i);
-        if (close === -1) return html.length;
-        i = close + 1;
-        continue;
-      }
-
-      if (ch === "&") {
-        const semi = html.indexOf(";", i);
-        if (semi !== -1) {
-          raw += 1;
-          i = semi + 1;
-          continue;
-        }
-      }
-
-      raw += 1;
-      i += 1;
-    }
-
-    return html.length;
-  }
-
-  function wrapRawRangeInHtml(html: string, rawStart: number, rawEnd: number, className: string): string {
-    if (rawEnd <= rawStart) return html;
-
-    const start = rawPosToHtmlIndex(html, rawStart);
-    const end = rawPosToHtmlIndex(html, rawEnd);
-    if (start >= end) return html;
-
-    return `${html.slice(0, start)}<span class="${className}">${html.slice(start, end)}</span>${html.slice(end)}`;
-  }
-
-  function markdownIndentDepth(leading: string): number {
-    // Treat tab as two spaces to match editor tab-size and indent behavior.
-    let width = 0;
-    for (let i = 0; i < leading.length; i++) {
-      width += leading[i] === "\t" ? 2 : 1;
-    }
-    return Math.max(0, Math.floor(width / 2));
-  }
-
-  function splitMarkdownTableCells(text: string): string[] {
-    const trimmed = text.trim();
-    const core = trimmed.replace(/^\|/, "").replace(/\|$/, "");
-    return core.split("|").map((cell) => cell.trim());
-  }
-
-  function isMarkdownTableLike(text: string): boolean {
-    const trimmed = text.trim();
-    if (!trimmed.includes("|")) return false;
-    const cells = splitMarkdownTableCells(trimmed);
-    return cells.length >= 2;
-  }
-
-  function isMarkdownTableSeparator(text: string): boolean {
-    if (!isMarkdownTableLike(text)) return false;
-    const cells = splitMarkdownTableCells(text);
-    return cells.length >= 2 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
-  }
-
-  function renderMarkdownTableBlock(lines: string[]): string[] | null {
-    if (lines.length < 2) return null;
-
-    const hasSeparator = lines.some((line) => isMarkdownTableSeparator(line));
-    if (!hasSeparator) return null;
-
-    const parsed = lines.map((line) => {
-      const leading = line.match(/^\s*/)?.[0] ?? "";
-      const cells = splitMarkdownTableCells(line);
-      const isSeparator = isMarkdownTableSeparator(line);
-      return { leading, cells, isSeparator };
-    });
-
-    const colCount = Math.max(1, ...parsed.map((line) => line.cells.length));
-    const widths = Array(colCount).fill(3);
-
-    for (const line of parsed) {
-      for (let i = 0; i < colCount; i++) {
-        const rawCell = (line.cells[i] ?? "").trim();
-        const cell = line.isSeparator ? rawCell.replaceAll(":", "") : rawCell;
-        widths[i] = Math.max(widths[i], cell.length);
-      }
-    }
-
-    return parsed.map((line) => {
-      if (line.isSeparator) {
-        return `${line.leading}├${widths.map((w) => "─".repeat(w + 2)).join("┼")}┤`;
-      }
-
-      const paddedCells = Array.from({ length: colCount }, (_, i) => {
-        const cell = (line.cells[i] ?? "").trim();
-        return cell.padEnd(widths[i], " ");
-      });
-
-      return `${line.leading}│ ${paddedCells.join(" │ ")} │`;
-    });
-  }
-
-  function decorateInlineBold(innerHtml: string, text: string): string {
-    let decorated = innerHtml;
-    const boldRe = /\*\*([^\n*][^\n]*?)\*\*/g;
-    let match: RegExpExecArray | null;
-
-    while ((match = boldRe.exec(text)) !== null) {
-      const open = match.index;
-      const full = match[0] ?? "";
-      const body = match[1] ?? "";
-      if (!full || !body.trim()) continue;
-
-      const close = open + full.length - 2;
-      decorated = wrapRawRangeInHtml(decorated, open, open + 2, "md-bold-marker");
-      decorated = wrapRawRangeInHtml(decorated, open + 2, close, "md-bold-content");
-      decorated = wrapRawRangeInHtml(decorated, close, close + 2, "md-bold-marker");
-    }
-
-    return decorated;
-  }
-
-  function enhanceMarkdown(html: string): string {
-    // First pass: identify markdown table blocks and prepare box-drawing render lines.
-    const lineTexts: string[] = [];
-    const lineRegex = /<span class="line">(.*)<\/span>/g;
-    let lineMatch: RegExpExecArray | null;
-
-    while ((lineMatch = lineRegex.exec(html)) !== null) {
-      lineTexts.push(lineMatch[1].replace(/<[^>]*>/g, ""));
-    }
-
-    const renderedTables = new Map<number, string>();
-    if (MARKDOWN_ENHANCE.tables) {
-      for (let i = 0; i < lineTexts.length;) {
-        if (!isMarkdownTableLike(lineTexts[i])) {
-          i += 1;
-          continue;
-        }
-
-        let j = i;
-        while (j < lineTexts.length && isMarkdownTableLike(lineTexts[j])) j += 1;
-
-        const rendered = renderMarkdownTableBlock(lineTexts.slice(i, j));
-        if (rendered) {
-          for (let k = 0; k < rendered.length; k++) {
-            renderedTables.set(i + k, rendered[k]);
-          }
-        }
-
-        i = j;
-      }
-    }
-
-    // Second pass: apply existing markdown decorations + table rendering.
-    let lineIndex = 0;
-    return html.replace(/<span class="line">(.*)<\/span>/g, (match, inner) => {
-      const text = inner.replace(/<[^>]*>/g, ""); // strip tags to get raw text
-      const tableRendered = renderedTables.get(lineIndex);
-      lineIndex += 1;
-
-      if (tableRendered && MARKDOWN_ENHANCE.tables) {
-        return `<span class="line md-table">${escapeHtml(tableRendered)}</span>`;
-      }
-
-      // Unordered list items
-      if (MARKDOWN_ENHANCE.lists && /^\s*[-*+]\s/.test(text)) {
-        let decorated = escapeHtml(text);
-        const taskMatch = text.match(/^(\s*)([-*+])(\s+)\[( |x|X)\](\s+|$)/);
-        const bulletMatch = text.match(/^(\s*)([-*+])(\s+)/);
-        if (bulletMatch) {
-          const markerStart = bulletMatch[1].length;
-          const depth = markdownIndentDepth(bulletMatch[1]);
-          const depthClass = `depth-${depth % 3}`;
-          const markerClass = taskMatch ? `md-list-marker ${depthClass} task` : `md-list-marker ${depthClass}`;
-          decorated = wrapRawRangeInHtml(decorated, markerStart, markerStart + 1, markerClass);
-        }
-
-        if (taskMatch) {
-          const boxStart = taskMatch[1].length + taskMatch[2].length + taskMatch[3].length;
-          const checked = /[xX]/.test(taskMatch[4]);
-          decorated = wrapRawRangeInHtml(decorated, boxStart, boxStart + 3, checked ? "md-task-box checked" : "md-task-box");
-        }
-
-        if (MARKDOWN_ENHANCE.bold) {
-          decorated = decorateInlineBold(decorated, text);
-        }
-        return `<span class="line md-list">${decorated}</span>`;
-      }
-
-      // Ordered list items
-      if (MARKDOWN_ENHANCE.lists && /^\s*\d+\.\s/.test(text)) {
-        let decorated = escapeHtml(text);
-        const orderedMatch = text.match(/^(\s*)(\d+\.)(\s+)/);
-        if (orderedMatch) {
-          const markerStart = orderedMatch[1].length;
-          const markerEnd = markerStart + orderedMatch[2].length;
-          decorated = wrapRawRangeInHtml(decorated, markerStart, markerEnd, "md-olist-marker");
-        }
-        if (MARKDOWN_ENHANCE.bold) {
-          decorated = decorateInlineBold(decorated, text);
-        }
-        return `<span class="line md-list md-olist">${decorated}</span>`;
-      }
-
-      // Blockquotes
-      if (MARKDOWN_ENHANCE.quotes && /^\s*>/.test(text)) {
-        const decorated = MARKDOWN_ENHANCE.bold ? decorateInlineBold(inner, text) : inner;
-        return `<span class="line md-quote">${decorated}</span>`;
-      }
-
-      const decorated = MARKDOWN_ENHANCE.bold ? decorateInlineBold(inner, text) : inner;
-      return `<span class="line">${decorated}</span>`;
-    });
-  }
-
-  function escapeHtml(text: string) {
-    return text
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
   }
 
   // Synchronous highlight — used during typing when lang/theme are already loaded
@@ -1374,7 +896,7 @@
     });
 
     if ((language === "md" || language === "markdown") && markdownRenderMode !== "raw") {
-      html = enhanceMarkdown(html);
+      html = enhanceMarkdownHtml(html);
     }
 
     highlightedHtml = html;
@@ -1400,7 +922,9 @@
       codeLayerEl.scrollLeft = textareaEl.scrollLeft;
     }
     syncMeasureScroll();
-    updateMinimapViewport();
+    editorScrollTop = textareaEl.scrollTop;
+    editorScrollHeight = textareaEl.scrollHeight;
+    editorClientHeight = textareaEl.clientHeight;
     if (hasVirtualCursors()) scheduleGhostVisuals();
   }
 
@@ -1414,7 +938,7 @@
   function onInput(event: Event) {
     const ta = event.target as HTMLTextAreaElement;
     const value = ta.value;
-    pushHistoryEntry(value, ta.selectionStart, ta.selectionEnd);
+    history.push(value, ta.selectionStart, ta.selectionEnd);
     onchange(value);
     inputGeneration++;
 
@@ -1428,14 +952,12 @@
     } else if (hasVirtualCursors()) {
       scheduleGhostVisuals();
     }
-    rebuildMinimapBars();
-    updateMinimapViewport();
     highlightSync(); // synchronous — no debounce, no frame delay
   }
 
   function onBeforeInput(event: InputEvent) {
     if (event.inputType === "historyUndo") {
-      if (canUndoHistory()) {
+      if (history.canUndo()) {
         event.preventDefault();
         undoHistory();
       }
@@ -1443,7 +965,7 @@
     }
 
     if (event.inputType === "historyRedo") {
-      if (canRedoHistory()) {
+      if (history.canRedo()) {
         event.preventDefault();
         redoHistory();
       }
@@ -1539,13 +1061,15 @@
     const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
     const line = value.slice(lineStart, lineEnd);
 
-    const taskMatch = line.match(/^(\s*)([-*+]|\d+\.)(\s+)\[( |x|X)\]/);
+    const taskMatch = line.match(/^(\s*)([-*+]|\d+\.)(\s+)\[( |x|X)?\]/);
     if (!taskMatch) return null;
 
     const boxStart = lineStart + taskMatch[1].length + taskMatch[2].length + taskMatch[3].length;
+    const boxLen = taskMatch[4] == null ? 2 : 3;
     return {
-      checkIndex: boxStart + 1,
-      checked: /[xX]/.test(taskMatch[4]),
+      boxStart,
+      boxEnd: boxStart + boxLen,
+      checked: /[xX]/.test(taskMatch[4] ?? ""),
     };
   }
 
@@ -1559,12 +1083,19 @@
     const task = findMarkdownTaskAtOffset(ta.value, offset);
     if (!task) return false;
 
-    const next = task.checked ? " " : "x";
-    const nextValue = `${ta.value.slice(0, task.checkIndex)}${next}${ta.value.slice(task.checkIndex + 1)}`;
+    const replacement = task.checked ? "[]" : "[x]";
+    const nextValue = `${ta.value.slice(0, task.boxStart)}${replacement}${ta.value.slice(task.boxEnd)}`;
     if (nextValue === ta.value) return false;
 
+    const delta = replacement.length - (task.boxEnd - task.boxStart);
+    const remapIndex = (index: number) => {
+      if (index <= task.boxStart) return index;
+      if (index >= task.boxEnd) return index + delta;
+      return task.boxStart + replacement.length;
+    };
+
     ta.value = nextValue;
-    ta.setSelectionRange(selectionStart, selectionEnd);
+    ta.setSelectionRange(remapIndex(selectionStart), remapIndex(selectionEnd));
     ta.dispatchEvent(new Event("input", { bubbles: true }));
     return true;
   }
@@ -1594,7 +1125,9 @@
     const end = ta.selectionEnd;
 
     if (start === end) {
-      return toggleMarkdownTaskAtOffset(start);
+      if (toggleMarkdownTaskAtOffset(start)) return true;
+      insertTextAtSelection("- [] ");
+      return true;
     }
 
     const value = ta.value;
@@ -1604,10 +1137,12 @@
     const block = value.slice(blockStart, blockEnd);
 
     let changed = false;
-    const toggledBlock = block.replace(/^(\s*(?:[-*+]|\d+\.)\s+\[)( |x|X)(\])/gm, (_m, pre, state, post) => {
+    const toggledBlock = block.replace(/^(\s*(?:[-*+]|\d+\.)\s+\[)( |x|X)?(\])/gm, (_m, pre, state, post) => {
       changed = true;
-      const next = state === " " ? "x" : " ";
-      return `${pre}${next}${post}`;
+      if (state === "x" || state === "X") {
+        return `${pre}${post}`;
+      }
+      return `${pre}x${post}`;
     });
 
     if (!changed) return false;
@@ -1648,7 +1183,7 @@
     const lineText = val.slice(lineStart, start);
 
     if (isMarkdownLanguage() && start === end) {
-      const taskLineMatch = lineText.match(/^(\s*)([-*+]|\d+\.)(\s+)\[(?: |x|X)\](\s+|$)/);
+      const taskLineMatch = lineText.match(/^(\s*)([-*+]|\d+\.)(\s+)\[(?: |x|X)?\](\s+|$)/);
       if (taskLineMatch) {
         event.preventDefault();
         const leading = taskLineMatch[1] ?? "";
@@ -1657,7 +1192,7 @@
         const trailingGap = (taskLineMatch[4] ?? "").length > 0 ? (taskLineMatch[4] ?? "") : " ";
         const markerNum = markerRaw.match(/^(\d+)\.$/);
         const marker = markerNum ? `${Number.parseInt(markerNum[1], 10) + 1}.` : markerRaw;
-        const insert = `\n${leading}${marker}${markerGap}[ ]${trailingGap}`;
+        const insert = `\n${leading}${marker}${markerGap}[]${trailingGap}`;
         ta.value = val.slice(0, start) + insert + val.slice(end);
         ta.selectionStart = ta.selectionEnd = start + insert.length;
         ta.dispatchEvent(new Event("input", { bubbles: true }));
@@ -1768,19 +1303,19 @@
 
     if (mod && key === "z") {
       if (event.shiftKey) {
-        if (canRedoHistory()) {
+        if (history.canRedo()) {
           event.preventDefault();
           redoHistory();
           return;
         }
-      } else if (canUndoHistory()) {
+      } else if (history.canUndo()) {
         event.preventDefault();
         undoHistory();
         return;
       }
     }
 
-    if (event.ctrlKey && key === "y" && canRedoHistory()) {
+    if (event.ctrlKey && key === "y" && history.canRedo()) {
       event.preventDefault();
       redoHistory();
       return;
@@ -1829,6 +1364,27 @@
     const end = ta.selectionEnd;
 
     if (start === end && !event.shiftKey) {
+      const val = ta.value;
+      const lineStart = val.lastIndexOf("\n", start - 1) + 1;
+      const lineEndIdx = val.indexOf("\n", start);
+      const lineEnd = lineEndIdx === -1 ? val.length : lineEndIdx;
+      const line = val.slice(lineStart, lineEnd);
+      const cursorInLine = start - lineStart;
+      const beforeCursor = line.slice(0, cursorInLine);
+      const afterCursor = line.slice(cursorInLine);
+
+      const shouldIndentEmptyListItem =
+        isMarkdownLanguage() &&
+        /^\s*(?:[-*+]|\d+\.)\s$/.test(beforeCursor) &&
+        afterCursor.trim().length === 0;
+
+      if (shouldIndentEmptyListItem) {
+        ta.value = val.slice(0, lineStart) + "  " + line + val.slice(lineEnd);
+        ta.selectionStart = ta.selectionEnd = start + 2;
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+        return;
+      }
+
       // No selection — insert two spaces at cursor
       const before = ta.value.slice(0, start);
       const after = ta.value.slice(end);
@@ -1916,17 +1472,6 @@
     if (hasVirtualCursors()) scheduleGhostVisuals();
   });
 
-  // Keep minimap data/viewport synced with content and size changes.
-  $effect(() => {
-    void content;
-    void wordWrap;
-    void fontSize;
-    void minimapEl;
-    void gitLineChanges;
-    rebuildMinimapBars();
-    updateMinimapViewport();
-  });
-
   // Track editable markdown constructs (bold/table) to toggle raw vs rendered view.
   $effect(() => {
     void content;
@@ -1945,28 +1490,22 @@
   onMount(() => {
     const observer = new ResizeObserver(() => {
       if (hasVirtualCursors()) scheduleGhostVisuals();
-      rebuildMinimapBars();
-      updateMinimapViewport();
     });
 
     if (textareaEl) {
       observer.observe(textareaEl);
-      resetHistory(textareaEl.value, textareaEl.selectionStart, textareaEl.selectionEnd);
+      history.reset(textareaEl.value, textareaEl.selectionStart, textareaEl.selectionEnd);
 
       if (isMarkdownLanguage()) {
         markdownEditRanges = computeMarkdownEditRanges(textareaEl.value);
         updateMarkdownEditModeFromSelection();
       }
     } else {
-      resetHistory(content, 0, 0);
+      history.reset(content, 0, 0);
     }
-
-    if (minimapEl) observer.observe(minimapEl);
 
     const onWindowResize = () => {
       if (hasVirtualCursors()) scheduleGhostVisuals();
-      rebuildMinimapBars();
-      updateMinimapViewport();
     };
     window.addEventListener("resize", onWindowResize);
 
@@ -1976,13 +1515,10 @@
         langs: [language]
       });
       await renderHighlight();
-      rebuildMinimapBars();
-      updateMinimapViewport();
       if (hasVirtualCursors()) scheduleGhostVisuals();
     })();
 
     return () => {
-      minimapDragging = false;
       observer.disconnect();
       window.removeEventListener("resize", onWindowResize);
       clearGhostVisuals();
@@ -2039,43 +1575,24 @@
   ></textarea>
 
   {#if showMinimap}
-    <div
-      class="minimap"
-      bind:this={minimapEl}
-      onmousedown={onMinimapMouseDown}
-      onwheel={onMinimapWheel}
-      aria-hidden="true"
-    >
-      <svg class="minimap-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-        {#each minimapBars as bar (bar.key)}
-          <rect
-            x="0"
-            y={bar.y}
-            width={bar.width}
-            height={bar.height}
-            fill="currentColor"
-            opacity={bar.opacity}
-            rx="0.8"
-            ry="0.8"
-          ></rect>
-        {/each}
-      </svg>
-      <div class="minimap-git-layer" aria-hidden="true">
-        {#each minimapGitMarkers as marker (marker.key)}
-          <div
-            class="minimap-git-marker"
-            class:added={marker.kind === "added"}
-            class:modified={marker.kind === "modified"}
-            class:deleted={marker.kind === "deleted"}
-            style={`top:${marker.top}px;height:${marker.height}px;`}
-          ></div>
-        {/each}
-      </div>
-      <div
-        class="minimap-viewport"
-        style={`top:${minimapViewportTop}px;height:${minimapViewportHeight}px;`}
-      ></div>
-    </div>
+    <Minimap
+      {content}
+      {gitLineChanges}
+      scrollTop={editorScrollTop}
+      scrollHeight={editorScrollHeight}
+      clientHeight={editorClientHeight}
+      onseek={(ratio) => {
+        if (!textareaEl) return;
+        const scrollRange = Math.max(0, textareaEl.scrollHeight - textareaEl.clientHeight);
+        textareaEl.scrollTop = ratio * scrollRange;
+        syncScroll();
+      }}
+      onscrollby={(deltaY) => {
+        if (!textareaEl) return;
+        textareaEl.scrollTop += deltaY;
+        syncScroll();
+      }}
+    />
   {/if}
 </section>
 
@@ -2151,67 +1668,6 @@
     background: #c8956c;
     border-radius: 1px;
     opacity: 0.95;
-  }
-
-  .minimap {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: var(--minimap-width);
-    border-left: 1px solid #2a2a2a;
-    background: #171717;
-    color: #6f685f;
-    z-index: 4;
-    cursor: pointer;
-    user-select: none;
-  }
-
-  .minimap-svg {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
-
-  .minimap-git-layer {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-
-  .minimap-git-marker {
-    position: absolute;
-    right: 0;
-    width: 4px;
-    border-radius: 2px 0 0 2px;
-    opacity: 0.95;
-  }
-
-  .minimap-git-marker.added {
-    background: #3fb950;
-  }
-
-  .minimap-git-marker.modified {
-    background: #d29922;
-  }
-
-  .minimap-git-marker.deleted {
-    background: #f85149;
-  }
-
-  .minimap-viewport {
-    position: absolute;
-    left: 0;
-    right: 0;
-    border: 1px solid #c8956c99;
-    background: rgba(200, 149, 108, 0.09);
-    box-sizing: border-box;
-    pointer-events: none;
-  }
-
-  .minimap:hover .minimap-viewport {
-    border-color: #c8956ccc;
-    background: rgba(200, 149, 108, 0.12);
   }
 
   .code-layer :global(pre) {
