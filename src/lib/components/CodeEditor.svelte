@@ -1647,6 +1647,22 @@
     const lineStart = val.lastIndexOf("\n", start - 1) + 1;
     const lineText = val.slice(lineStart, start);
 
+    if (isMarkdownLanguage() && start === end) {
+      const taskLineMatch = lineText.match(/^(\s*)([-*+]|\d+\.)(\s+)\[(?: |x|X)\](\s*)/);
+      if (taskLineMatch) {
+        event.preventDefault();
+        const leading = taskLineMatch[1] ?? "";
+        const marker = taskLineMatch[2] ?? "-";
+        const markerGap = taskLineMatch[3] ?? " ";
+        const trailingGap = (taskLineMatch[4] ?? "").length > 0 ? (taskLineMatch[4] ?? "") : " ";
+        const insert = `\n${leading}${marker}${markerGap}[ ]${trailingGap}`;
+        ta.value = val.slice(0, start) + insert + val.slice(end);
+        ta.selectionStart = ta.selectionEnd = start + insert.length;
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+        return;
+      }
+    }
+
     // Match leading whitespace
     const match = lineText.match(/^(\s*)/);
     let indent = match ? match[1] : "";
