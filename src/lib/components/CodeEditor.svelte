@@ -107,6 +107,8 @@
   let minimapViewportHeight = $state(0);
   let minimapDragOffset = 0;
   let minimapDragging = false;
+  const MINIMAP_MIN_LINES = 100;
+  let showMinimap = $derived(((content.match(/\n/g)?.length ?? 0) + 1) > MINIMAP_MIN_LINES);
 
   const MARKDOWN_ENHANCE = {
     bold: true,
@@ -1646,14 +1648,42 @@
     const lineText = val.slice(lineStart, start);
 
     if (isMarkdownLanguage() && start === end) {
-      const taskLineMatch = lineText.match(/^(\s*)([-*+]|\d+\.)(\s+)\[(?: |x|X)\](\s*)/);
+      const taskLineMatch = lineText.match(/^(\s*)([-*+]|\d+\.)(\s+)\[(?: |x|X)\](\s+|$)/);
       if (taskLineMatch) {
         event.preventDefault();
         const leading = taskLineMatch[1] ?? "";
-        const marker = taskLineMatch[2] ?? "-";
+        const markerRaw = taskLineMatch[2] ?? "-";
         const markerGap = taskLineMatch[3] ?? " ";
         const trailingGap = (taskLineMatch[4] ?? "").length > 0 ? (taskLineMatch[4] ?? "") : " ";
+        const markerNum = markerRaw.match(/^(\d+)\.$/);
+        const marker = markerNum ? `${Number.parseInt(markerNum[1], 10) + 1}.` : markerRaw;
         const insert = `\n${leading}${marker}${markerGap}[ ]${trailingGap}`;
+        ta.value = val.slice(0, start) + insert + val.slice(end);
+        ta.selectionStart = ta.selectionEnd = start + insert.length;
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+        return;
+      }
+
+      const unorderedLineMatch = lineText.match(/^(\s*)([-*+])(\s+)/);
+      if (unorderedLineMatch) {
+        event.preventDefault();
+        const leading = unorderedLineMatch[1] ?? "";
+        const marker = unorderedLineMatch[2] ?? "-";
+        const markerGap = unorderedLineMatch[3] ?? " ";
+        const insert = `\n${leading}${marker}${markerGap}`;
+        ta.value = val.slice(0, start) + insert + val.slice(end);
+        ta.selectionStart = ta.selectionEnd = start + insert.length;
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+        return;
+      }
+
+      const orderedLineMatch = lineText.match(/^(\s*)(\d+)\.(\s+)/);
+      if (orderedLineMatch) {
+        event.preventDefault();
+        const leading = orderedLineMatch[1] ?? "";
+        const number = Number.parseInt(orderedLineMatch[2] ?? "1", 10);
+        const markerGap = orderedLineMatch[3] ?? " ";
+        const insert = `\n${leading}${number + 1}.${markerGap}`;
         ta.value = val.slice(0, start) + insert + val.slice(end);
         ta.selectionStart = ta.selectionEnd = start + insert.length;
         ta.dispatchEvent(new Event("input", { bubbles: true }));
@@ -1960,7 +1990,11 @@
   });
 </script>
 
-<section class="editor-shell" class:word-wrap={wordWrap} style="--editor-font-size: {fontSize}px">
+<section
+  class="editor-shell"
+  class:word-wrap={wordWrap}
+  style={`--editor-font-size:${fontSize}px;--minimap-width:${showMinimap ? "112px" : "0px"};`}
+>
   {#if showFind}
     <FindBar
       bind:this={findBarRef}
@@ -2004,43 +2038,45 @@
     spellcheck="false"
   ></textarea>
 
-  <div
-    class="minimap"
-    bind:this={minimapEl}
-    onmousedown={onMinimapMouseDown}
-    onwheel={onMinimapWheel}
-    aria-hidden="true"
-  >
-    <svg class="minimap-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-      {#each minimapBars as bar (bar.key)}
-        <rect
-          x="0"
-          y={bar.y}
-          width={bar.width}
-          height={bar.height}
-          fill="currentColor"
-          opacity={bar.opacity}
-          rx="0.8"
-          ry="0.8"
-        ></rect>
-      {/each}
-    </svg>
-    <div class="minimap-git-layer" aria-hidden="true">
-      {#each minimapGitMarkers as marker (marker.key)}
-        <div
-          class="minimap-git-marker"
-          class:added={marker.kind === "added"}
-          class:modified={marker.kind === "modified"}
-          class:deleted={marker.kind === "deleted"}
-          style={`top:${marker.top}px;height:${marker.height}px;`}
-        ></div>
-      {/each}
-    </div>
+  {#if showMinimap}
     <div
-      class="minimap-viewport"
-      style={`top:${minimapViewportTop}px;height:${minimapViewportHeight}px;`}
-    ></div>
-  </div>
+      class="minimap"
+      bind:this={minimapEl}
+      onmousedown={onMinimapMouseDown}
+      onwheel={onMinimapWheel}
+      aria-hidden="true"
+    >
+      <svg class="minimap-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+        {#each minimapBars as bar (bar.key)}
+          <rect
+            x="0"
+            y={bar.y}
+            width={bar.width}
+            height={bar.height}
+            fill="currentColor"
+            opacity={bar.opacity}
+            rx="0.8"
+            ry="0.8"
+          ></rect>
+        {/each}
+      </svg>
+      <div class="minimap-git-layer" aria-hidden="true">
+        {#each minimapGitMarkers as marker (marker.key)}
+          <div
+            class="minimap-git-marker"
+            class:added={marker.kind === "added"}
+            class:modified={marker.kind === "modified"}
+            class:deleted={marker.kind === "deleted"}
+            style={`top:${marker.top}px;height:${marker.height}px;`}
+          ></div>
+        {/each}
+      </div>
+      <div
+        class="minimap-viewport"
+        style={`top:${minimapViewportTop}px;height:${minimapViewportHeight}px;`}
+      ></div>
+    </div>
+  {/if}
 </section>
 
 <style>
