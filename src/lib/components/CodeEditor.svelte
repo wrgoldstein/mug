@@ -2285,18 +2285,18 @@
   }
 
   .code-layer :global(.md-list .md-task-box)::before {
-    content: "◯";
+    content: "☐";
     position: absolute;
-    left: 0.6ch;
+    left: 0.55ch;
     top: 0;
     color: #c8956c;
     -webkit-text-fill-color: #c8956c;
-    opacity: 0.9;
+    opacity: 0.92;
   }
 
   .code-layer :global(.md-list .md-task-box.checked)::before {
-    content: "●";
-    opacity: 0.95;
+    content: "☑";
+    opacity: 0.98;
   }
 
   .code-layer :global(.md-olist .md-olist-marker) {
