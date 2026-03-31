@@ -138,10 +138,7 @@
     if (idx === -1) return;
 
     const tab = tabs[idx];
-    if (tab.isDirty) {
-      // Simple confirm for now — TODO: nicer dialog
-      if (!confirm(`"${fileName(tab.path)}" has unsaved changes. Close anyway?`)) return;
-    }
+    const discardedDirty = tab.isDirty;
 
     tabs.splice(idx, 1);
 
@@ -158,6 +155,7 @@
     }
     // Trigger reactivity
     tabs = tabs;
+    status = discardedDirty ? `Closed ${fileName(tab.path)} (discarded unsaved changes)` : `Closed ${fileName(tab.path)}`;
   }
 
   function switchTabRelative(delta: number) {
@@ -260,10 +258,7 @@
       return;
     }
 
-    if (activeTab.isDirty) {
-      const ok = confirm(`Discard unsaved changes and reload \"${fileName(activeTab.path)}\" from disk?`);
-      if (!ok) return;
-    }
+    const discardedDirty = activeTab.isDirty;
 
     try {
       const diskContent = await readTextFile(activeTab.path);
@@ -273,7 +268,9 @@
       activeTab.isDirty = false;
       await refreshTabGitLineChanges(activeTab);
       tabs = tabs;
-      status = `Reloaded ${fileName(activeTab.path)}`;
+      status = discardedDirty
+        ? `Reloaded ${fileName(activeTab.path)} (discarded unsaved changes)`
+        : `Reloaded ${fileName(activeTab.path)}`;
     } catch {
       status = `Could not reload ${fileName(activeTab.path)}`;
     }
