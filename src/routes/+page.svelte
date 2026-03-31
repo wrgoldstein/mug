@@ -187,6 +187,16 @@
     tabs = tabs;
   }
 
+  function focusEditorSoon() {
+    requestAnimationFrame(() => {
+      if (editorRef) {
+        editorRef.focusEditor();
+      } else {
+        requestAnimationFrame(() => editorRef?.focusEditor());
+      }
+    });
+  }
+
   function newFile() {
     snapshotActiveTab();
     const tab = createTab(null, "");
@@ -194,6 +204,7 @@
     tabs = tabs;
     activeTabId = tab.id;
     status = "New file";
+    focusEditorSoon();
   }
 
   async function saveFile() {

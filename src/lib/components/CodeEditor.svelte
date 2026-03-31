@@ -1835,6 +1835,10 @@
     ta.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
+  export function focusEditor() {
+    textareaEl?.focus();
+  }
+
   function handleCloseFindBar() {
     onclosefind();
     textareaEl?.focus();
