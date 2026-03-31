@@ -1537,15 +1537,10 @@
     const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
     const line = value.slice(lineStart, lineEnd);
 
-    const taskMatch = line.match(/^(\s*)([-*+])(\s+)\[( |x|X)\](\s+|$)/);
+    const taskMatch = line.match(/^(\s*)([-*+]|\d+\.)(\s+)\[( |x|X)\]/);
     if (!taskMatch) return null;
 
     const boxStart = lineStart + taskMatch[1].length + taskMatch[2].length + taskMatch[3].length;
-    const boxEnd = boxStart + 3;
-    const hitStart = Math.max(lineStart, boxStart - 1);
-    const hitEnd = Math.min(value.length, boxEnd + 1);
-    if (offset < hitStart || offset > hitEnd) return null;
-
     return {
       checkIndex: boxStart + 1,
       checked: /[xX]/.test(taskMatch[4]),
@@ -1556,6 +1551,9 @@
     const ta = textareaEl;
     if (!ta || !isMarkdownLanguage() || markdownRenderMode === "raw") return false;
 
+    const selectionStart = ta.selectionStart;
+    const selectionEnd = ta.selectionEnd;
+
     const task = findMarkdownTaskAtOffset(ta.value, offset);
     if (!task) return false;
 
@@ -1564,7 +1562,7 @@
     if (nextValue === ta.value) return false;
 
     ta.value = nextValue;
-    ta.setSelectionRange(task.checkIndex, task.checkIndex);
+    ta.setSelectionRange(selectionStart, selectionEnd);
     ta.dispatchEvent(new Event("input", { bubbles: true }));
     return true;
   }
@@ -2315,8 +2313,10 @@
   }
 
   .code-layer :global(.md-list .md-task-box.checked)::before {
-    content: "☑";
+    content: "✔";
+    left: 0.7ch;
     opacity: 0.98;
+    font-weight: 700;
   }
 
   .code-layer :global(.md-olist .md-olist-marker) {
